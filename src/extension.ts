@@ -1,5 +1,7 @@
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import { JavaAstUtils } from './utils/JavaAstUtils';
 import { ProjectIndexer } from './services/ProjectIndexer';
 import { MyBatisCodeLensProvider } from './providers/MyBatisCodeLensProvider';
 import { MapperIntentionProvider } from './providers/MapperIntentionProvider';
@@ -305,6 +307,58 @@ export function activate(context: vscode.ExtensionContext) {
                 await codeGenService.generateCode(item.tableName, basePackage, root);
             } else {
                 vscode.window.showErrorMessage('未打开工作区');
+            }
+        }),
+        vscode.commands.registerCommand('mybatisToolkit.generateXmlForMethod', async (document: vscode.TextDocument, methodName: string, xmlFile: string) => {
+            try {
+                // 1. 获取方法信息
+                const text = document.getText();
+                const methods = JavaAstUtils.getMethods(text);
+                const methodInfo = methods.get(methodName);
+
+                if (!methodInfo) {
+                    vscode.window.showErrorMessage(`无法在文件中找到方法 ${methodName}`);
+                    return;
+                }
+
+                // 2. 生成 SQL
+                // 获取类名
+                const className = JavaAstUtils.getSimpleName(text) || '';
+                const fullClassName = `${JavaAstUtils.getPackageName(text)}.${className}`;
+
+                // 构建参数列表
+                const params: { name: string; type: string }[] = [];
+                methodInfo.params.forEach((type, name) => params.push({ name, type }));
+
+                // 返回类型不需要特别精确解析，只要能推断实体即可
+                const returnType = methodInfo.returnType || ''; // JavaAstUtils 此时可能未完全解析 returnType，但 MethodSqlGenerator 主要是用它来推断实体名
+
+                const generator = new MethodSqlGenerator(indexer);
+                const sqlXml = generator.generateSql(methodName, returnType, params, fullClassName);
+
+                if (!sqlXml) {
+                    vscode.window.showErrorMessage(`无法为 ${methodName} 生成 SQL (不支持的操作类型?)`);
+                    return;
+                }
+
+                // 3. 插入到 XML
+                let xmlContent = fs.readFileSync(vscode.Uri.parse(xmlFile).fsPath, 'utf-8');
+                const closeTagIndex = xmlContent.lastIndexOf('</mapper>');
+                if (closeTagIndex === -1) {
+                    vscode.window.showErrorMessage('XML 文件格式不正确 (未找到 </mapper>)');
+                    return;
+                }
+
+                // 插入
+                const newContent = xmlContent.slice(0, closeTagIndex) + '\n  ' + sqlXml + '\n' + xmlContent.slice(closeTagIndex);
+                fs.writeFileSync(vscode.Uri.parse(xmlFile).fsPath, newContent, 'utf-8');
+
+                // 4. 打开并显示
+                const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(xmlFile));
+                await vscode.window.showTextDocument(doc);
+
+            } catch (e) {
+                vscode.window.showErrorMessage(`生成失败: ${e}`);
             }
         })
     );

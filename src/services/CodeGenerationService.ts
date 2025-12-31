@@ -107,13 +107,13 @@ public interface ${className}Mapper {
 
     int insertSelective(${className} record);
 
-    int updateByPrimaryKey(${className} record);
-    
-    int updateByPrimaryKeySelective(${className} record);
+    int updateById(${className} record);
 
-    int deleteByPrimaryKey(@Param("id") Long id);
+    int updateByIdSelective(${className} record);
 
-    ${className} selectByPrimaryKey(@Param("id") Long id);
+    int deleteById(@Param("id") Long id);
+
+    ${className} selectById(@Param("id") Long id);
 
     List<${className}> selectAll();
 }
@@ -138,6 +138,30 @@ public interface ${className}Mapper {
         const columnList = columns.map(c => `        ${c.Field}`).join(',\n');
         const insertCols = columns.map(c => c.Field).join(', ');
         const insertVals = columns.map(c => `#{${this.toCamelCase(c.Field)}}`).join(', ');
+        const updateSets = columns
+            .filter(c => c.Field !== 'id')
+            .map(c => `        ${c.Field} = #{${this.toCamelCase(c.Field)}}`)
+            .join(',\n');
+
+        // 动态插入列
+        const insertSelectiveCols = columns.map(c => {
+            const prop = this.toCamelCase(c.Field);
+            return `            <if test="${prop} != null">${c.Field},</if>`;
+        }).join('\n');
+        // 动态插入值
+        const insertSelectiveVals = columns.map(c => {
+            const prop = this.toCamelCase(c.Field);
+            return `            <if test="${prop} != null">#{${prop}},</if>`;
+        }).join('\n');
+
+        // 动态更新列
+        const updateSetsSelective = columns
+            .filter(c => c.Field !== 'id')
+            .map(c => {
+                const prop = this.toCamelCase(c.Field);
+                return `            <if test="${prop} != null">${c.Field} = #{${prop}},</if>`;
+            })
+            .join('\n');
 
         return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
@@ -151,22 +175,47 @@ ${resultResults}
 ${columnList}
     </sql>
 
-    <select id="selectByPrimaryKey" resultMap="BaseResultMap">
+    <insert id="insert" parameterType="${fullEntityName}">
+        insert into ${table} (${insertCols})
+        values (${insertVals})
+    </insert>
+
+    <insert id="insertSelective" parameterType="${fullEntityName}">
+        insert into ${table}
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+${insertSelectiveCols}
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+${insertSelectiveVals}
+        </trim>
+    </insert>
+
+    <update id="updateById" parameterType="${fullEntityName}">
+        update ${table}
+        set 
+${updateSets}
+        where id = #{id}
+    </update>
+
+    <update id="updateByIdSelective" parameterType="${fullEntityName}">
+        update ${table}
+        <set>
+${updateSetsSelective}
+        </set>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        delete from ${table}
+        where id = #{id}
+    </delete>
+
+    <select id="selectById" resultMap="BaseResultMap">
         select 
         <include refid="Base_Column_List" />
         from ${table}
         where id = #{id}
     </select>
-
-    <delete id="deleteByPrimaryKey">
-        delete from ${table}
-        where id = #{id}
-    </delete>
-
-    <insert id="insert" parameterType="${fullEntityName}">
-        insert into ${table} (${insertCols})
-        values (${insertVals})
-    </insert>
 
     <select id="selectAll" resultMap="BaseResultMap">
         select 
