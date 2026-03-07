@@ -2,7 +2,7 @@
   "name": "mybatis-toolkit-pro",
   "displayName": "MyBatis Toolkit Pro",
   "description": "专业的 MyBatis 开发工具包",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "publisher": "xiyeming",
   "license": "MIT",
   "keywords": [
@@ -29,6 +29,7 @@
   "activationEvents": [
     "onLanguage:xml",
     "onLanguage:java",
+    "onLanguage:sql",
     "workspaceContains:**/*.xml"
   ],
   "main": "./dist/extension.js",
@@ -99,12 +100,41 @@
       {
         "command": "mybatisToolkit.generateCode",
         "title": "生成代码 (Entity/Mapper/XML)"
+      },
+      {
+        "command": "mybatisToolkit.selectConnection",
+        "title": "选择数据库",
+        "icon": "$(database)"
+      },
+      {
+        "command": "mybatisToolkit.newQuery",
+        "title": "新建查询窗口",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "mybatisToolkit.runSelectedSql",
+        "title": "执行选中 SQL",
+        "icon": "$(play)"
+      },
+      {
+        "command": "mybatisToolkit.runAllSql",
+        "title": "执行全部 SQL",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "mybatisToolkit.showFullStructure",
+        "title": "展示全部结构 (表与列)"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "mybatisToolkit.addConnection",
+          "when": "view == mybatisToolkit.databaseExplorer",
+          "group": "navigation"
+        },
+        {
+          "command": "mybatisToolkit.newQuery",
           "when": "view == mybatisToolkit.databaseExplorer",
           "group": "navigation"
         }
@@ -134,101 +164,77 @@
           "command": "mybatisToolkit.removeConnection",
           "when": "view == mybatisToolkit.databaseExplorer && viewItem == connection",
           "group": "1_modification"
+        },
+        {
+          "command": "mybatisToolkit.selectConnection",
+          "when": "view == mybatisToolkit.databaseExplorer && viewItem == connection",
+          "group": "inline"
+        },
+        {
+          "command": "mybatisToolkit.newQuery",
+          "when": "view == mybatisToolkit.databaseExplorer && viewItem == connection",
+          "group": "inline"
+        }
+      ],
+      "editor/title/run": [
+        {
+          "command": "mybatisToolkit.selectConnection",
+          "when": "editorLangId == sql",
+          "group": "navigation"
+        },
+        {
+          "command": "mybatisToolkit.runSelectedSql",
+          "when": "editorLangId == sql && mybatisToolkit.connected",
+          "group": "navigation"
+        },
+        {
+          "command": "mybatisToolkit.runAllSql",
+          "when": "editorLangId == sql && mybatisToolkit.connected",
+          "group": "navigation"
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "mybatisToolkit.runSelectedSql",
+        "key": "ctrl+shift+,",
+        "mac": "cmd+shift+,",
+        "when": "editorLangId == sql"
+      },
+      {
+        "command": "mybatisToolkit.runAllSql",
+        "key": "ctrl+shift+.",
+        "mac": "cmd+shift+.",
+        "when": "editorLangId == sql"
+      }
+    ],
     "configuration": {
       "type": "object",
       "title": "MyBatis Toolkit Pro",
+      "order": [
+        "mybatisToolkit.defaultDatabaseType",
+        "mybatisToolkit.connections",
+        "mybatisToolkit.database.host",
+        "mybatisToolkit.database.port",
+        "mybatisToolkit.database.user",
+        "mybatisToolkit.database.password",
+        "mybatisToolkit.database.database",
+        "mybatisToolkit.database.connectionLimit",
+        "mybatisToolkit.validation.enable",
+        "mybatisToolkit.navigation.exclude",
+        "mybatisToolkit.performance.indexParseConcurrency",
+        "mybatisToolkit.performance.indexDebounceMs",
+        "mybatisToolkit.performance.validationDebounceMs",
+        "mybatisToolkit.queryResult.datetimeFormat",
+        "mybatisToolkit.queryResult.dateFormat",
+        "mybatisToolkit.queryResult.timeFormat",
+        "mybatisToolkit.formatting.indentSize",
+        "mybatisToolkit.highlights.tableNameColor",
+        "mybatisToolkit.highlights.keywordColor",
+        "mybatisToolkit.highlights.functionColor",
+        "mybatisToolkit.highlights.paramColor"
+      ],
       "properties": {
-        "mybatisToolkit.formatting.indentSize": {
-          "type": "number",
-          "default": 2,
-          "description": "SQL 格式化的缩进大小。"
-        },
-        "mybatisToolkit.navigation.exclude": {
-          "type": "array",
-          "default": [
-            "target",
-            "build",
-            "bin",
-            "out",
-            "dist",
-            "node_modules",
-            ".git"
-          ],
-          "description": "索引时排除的文件夹。"
-        },
-        "mybatisToolkit.highlights.tableNameColor": {
-          "type": "string",
-          "format": "color-hex",
-          "default": "#FFAB70",
-          "description": "SQL 表名颜色 (例如 FROM table)。"
-        },
-        "mybatisToolkit.highlights.keywordColor": {
-          "type": "string",
-          "format": "color-hex",
-          "default": "#C586C0",
-          "description": "SQL 关键字颜色 (SELECT, WHERE 等)。"
-        },
-        "mybatisToolkit.highlights.functionColor": {
-          "type": "string",
-          "format": "color-hex",
-          "default": "#DCDCAA",
-          "description": "SQL 函数颜色 (COUNT, MAX 等)。"
-        },
-        "mybatisToolkit.highlights.paramColor": {
-          "type": "string",
-          "format": "color-hex",
-          "default": "#9CDCFE",
-          "description": "MyBatis 参数颜色 (#{...})。"
-        },
-        "mybatisToolkit.connections": {
-          "type": "array",
-          "default": [],
-          "description": "保存的数据库连接列表。",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "MySQL",
-                  "PostgreSQL",
-                  "Oracle",
-                  "SQL Server",
-                  "SQLite",
-                  "DB2",
-                  "H2",
-                  "MariaDB"
-                ],
-                "default": "MySQL",
-                "description": "数据库类型"
-              },
-              "host": {
-                "type": "string"
-              },
-              "port": {
-                "type": "number"
-              },
-              "user": {
-                "type": "string"
-              },
-              "password": {
-                "type": "string"
-              },
-              "database": {
-                "type": "string"
-              }
-            }
-          }
-        },
         "mybatisToolkit.defaultDatabaseType": {
           "type": "string",
           "enum": [
@@ -242,42 +248,152 @@
             "MariaDB"
           ],
           "default": "MySQL",
-          "description": "默认数据库类型"
+          "description": "默认数据库类型",
+          "markdownDescription": "用于 **SQL 高亮/格式化** 的默认方言。若已连接数据库，将优先使用当前连接类型。"
+        },
+        "mybatisToolkit.connections": {
+          "type": "array",
+          "default": [],
+          "description": "数据库连接列表",
+          "markdownDescription": "在 **MyBatis 侧边栏** 中管理的多数据源。每项包含：名称、类型、主机、端口、用户、密码、数据库。密码由扩展安全存储。",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "description": "连接唯一 ID" },
+              "name": { "type": "string", "description": "显示名称" },
+              "type": {
+                "type": "string",
+                "enum": ["MySQL", "PostgreSQL", "Oracle", "SQL Server", "SQLite", "DB2", "H2", "MariaDB"],
+                "default": "MySQL",
+                "description": "数据库类型"
+              },
+              "host": { "type": "string", "description": "主机地址" },
+              "port": { "type": "number", "description": "端口" },
+              "user": { "type": "string", "description": "用户名" },
+              "password": { "type": "string", "description": "密码" },
+              "database": { "type": "string", "description": "数据库/Schema 名" }
+            }
+          }
         },
         "mybatisToolkit.database.host": {
           "type": "string",
           "default": "localhost",
-          "description": "数据库主机"
+          "description": "默认连接：主机",
+          "markdownDescription": "未配置多连接时使用的 **单连接** 主机。建议在侧栏「添加连接」后使用 `connections`。"
         },
         "mybatisToolkit.database.port": {
           "type": "number",
           "default": 3306,
-          "description": "数据库端口"
+          "description": "默认连接：端口",
+          "minimum": 1,
+          "maximum": 65535
         },
         "mybatisToolkit.database.user": {
           "type": "string",
           "default": "root",
-          "description": "数据库用户名"
+          "description": "默认连接：用户名"
         },
         "mybatisToolkit.database.password": {
           "type": "string",
           "default": "",
-          "description": "数据库密码"
+          "description": "默认连接：密码"
         },
         "mybatisToolkit.database.database": {
           "type": "string",
           "default": "",
-          "description": "数据库名称"
+          "description": "默认连接：数据库名"
         },
         "mybatisToolkit.database.connectionLimit": {
           "type": "number",
           "default": 10,
-          "description": "数据库连接池限制"
+          "description": "连接池大小",
+          "minimum": 1,
+          "maximum": 100
         },
         "mybatisToolkit.validation.enable": {
           "type": "boolean",
           "default": true,
-          "description": "启用 SQL 表验证"
+          "description": "启用 SQL 与映射验证",
+          "markdownDescription": "在 XML Mapper 中实时校验：表/列是否存在、resultMap/resultType 与 Java 属性是否一致。"
+        },
+        "mybatisToolkit.navigation.exclude": {
+          "type": "array",
+          "default": ["target", "build", "bin", "out", "dist", "node_modules", ".git"],
+          "description": "索引排除目录",
+          "markdownDescription": "扫描 Java/XML 时跳过的文件夹名（不含路径），用于减少无关代码参与 Mapper 索引与跳转。"
+        },
+        "mybatisToolkit.performance.indexParseConcurrency": {
+          "type": "number",
+          "default": 20,
+          "description": "索引并发数",
+          "markdownDescription": "同时解析的 Java/XML 文件数量。大仓库可适当调低以降低 CPU 峰值；高性能机器可调高以加快索引。",
+          "minimum": 5,
+          "maximum": 100
+        },
+        "mybatisToolkit.performance.indexDebounceMs": {
+          "type": "number",
+          "default": 300,
+          "description": "文件变更防抖（毫秒）",
+          "markdownDescription": "文件保存后延迟多少毫秒再触发索引更新与 CodeLens 刷新。可减少频繁保存时的重复计算。",
+          "minimum": 50,
+          "maximum": 2000
+        },
+        "mybatisToolkit.performance.validationDebounceMs": {
+          "type": "number",
+          "default": 400,
+          "description": "诊断防抖（毫秒）",
+          "markdownDescription": "编辑 XML 后延迟多少毫秒再运行 SQL 诊断。",
+          "minimum": 100,
+          "maximum": 2000
+        },
+        "mybatisToolkit.queryResult.datetimeFormat": {
+          "type": "string",
+          "default": "%Y-%m-%d %H:%i:%s",
+          "description": "查询结果：日期时间格式",
+          "markdownDescription": "返回结果中日期时间列的显示格式。占位符：`%Y` 年 `%m` 月 `%d` 日 `%H` 时 `%i` 分 `%s` 秒。默认 `%Y-%m-%d %H:%i:%s`。"
+        },
+        "mybatisToolkit.queryResult.dateFormat": {
+          "type": "string",
+          "default": "%Y-%m-%d",
+          "description": "查询结果：仅日期格式",
+          "markdownDescription": "仅日期（无时间）时的显示格式。默认 `%Y-%m-%d`。"
+        },
+        "mybatisToolkit.queryResult.timeFormat": {
+          "type": "string",
+          "default": "%H:%i:%s",
+          "description": "查询结果：仅时间格式",
+          "markdownDescription": "仅时间（无日期）时的显示格式。默认 `%H:%i:%s`。"
+        },
+        "mybatisToolkit.formatting.indentSize": {
+          "type": "number",
+          "default": 2,
+          "description": "SQL 格式化缩进空格数",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "mybatisToolkit.highlights.tableNameColor": {
+          "type": "string",
+          "format": "color-hex",
+          "default": "#FFAB70",
+          "description": "表名高亮颜色（如 FROM 后）"
+        },
+        "mybatisToolkit.highlights.keywordColor": {
+          "type": "string",
+          "format": "color-hex",
+          "default": "#C586C0",
+          "description": "SQL 关键字颜色（SELECT、WHERE 等）"
+        },
+        "mybatisToolkit.highlights.functionColor": {
+          "type": "string",
+          "format": "color-hex",
+          "default": "#DCDCAA",
+          "description": "SQL 函数颜色（COUNT、MAX 等）"
+        },
+        "mybatisToolkit.highlights.paramColor": {
+          "type": "string",
+          "format": "color-hex",
+          "default": "#9CDCFE",
+          "description": "MyBatis 参数颜色（#{...}、${...}）"
         }
       }
     }
@@ -296,6 +412,7 @@
   "devDependencies": {
     "@dbcode/vscode-api": "^1.1.1",
     "@types/node": "^20.0.0",
+    "@types/pg": "^8.18.0",
     "@types/vscode": "^1.90.0",
     "ts-loader": "^9.5.4",
     "typescript": "^5.0.0",
@@ -304,6 +421,10 @@
     "webpack-cli": "^6.0.1"
   },
   "dependencies": {
-    "mysql2": "^3.15.3"
+    "mysql2": "^3.15.3",
+    "pg": "^8.13.0"
+  },
+  "optionalDependencies": {
+    "oracledb": "^6.7.0"
   }
 }

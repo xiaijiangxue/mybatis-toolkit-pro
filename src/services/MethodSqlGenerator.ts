@@ -1,4 +1,5 @@
 import { ProjectIndexer } from './ProjectIndexer';
+import { JavaAstUtils } from '../utils/JavaAstUtils';
 import { JavaClass } from '../types';
 
 export class MethodSqlGenerator {
@@ -14,12 +15,10 @@ export class MethodSqlGenerator {
         const type = this.getOperationType(methodName);
         if (!type) return '';
 
-        // 2. 解析实体 (模拟检查或约定)
-        // 假设实体名称派生自接口名称 (UserMapper -> User)
-        // 或派生自返回类型 (List<User> -> User)
-        let entityName = '';
+        // 2. 解析实体：优先从返回类型泛型推断 (List<User> -> User)，否则从接口名 (UserMapper -> User)
         const interfaceSimpleName = className.split('.').pop() || '';
-        const possibleEntity = interfaceSimpleName.replace('Mapper', '');
+        const fromReturnType = JavaAstUtils.getFirstGenericTypeName(returnType);
+        const possibleEntity = fromReturnType || interfaceSimpleName.replace('Mapper', '');
 
         // 尝试验证此实体是否存在于索引中
         // 简单启发式：PascalCase 转下划线 (User -> user)

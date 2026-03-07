@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { DatabaseService } from '../services/DatabaseService';
 import { ProjectIndexer } from '../services/ProjectIndexer';
 import { SQL_KEYWORDS, SQL_FUNCTIONS } from '../constants';
+import { isValidationEnabled, getValidationDebounceMs } from '../config';
 
 export class SqlValidationProvider implements vscode.Disposable {
     private diagnosticCollection: vscode.DiagnosticCollection;
@@ -14,32 +15,38 @@ export class SqlValidationProvider implements vscode.Disposable {
         this.indexer = indexer;
         this.diagnosticCollection = vscode.languages.createDiagnosticCollection('mybatis-sql');
 
-        // 数据库就绪时重新验证
+        // 数据库就绪时重新验证（防抖，避免连续触发）
         this.dbService.onDidReady(() => {
-            if (vscode.window.activeTextEditor) {
-                this.triggerUpdateDiagnostics(vscode.window.activeTextEditor.document);
-            }
-            // 同时更新所有可见编辑器的诊断
-            vscode.window.visibleTextEditors.forEach(editor => {
-                this.triggerUpdateDiagnostics(editor.document);
-            });
+            if (this.readyDebounce) clearTimeout(this.readyDebounce);
+            this.readyDebounce = setTimeout(() => {
+                this.readyDebounce = undefined;
+                if (vscode.window.activeTextEditor && vscode.window.activeTextEditor.document.languageId === 'xml') {
+                    this.triggerUpdateDiagnostics(vscode.window.activeTextEditor.document);
+                }
+                vscode.window.visibleTextEditors.forEach(editor => {
+                    if (editor.document.languageId === 'xml') {
+                        this.triggerUpdateDiagnostics(editor.document);
+                    }
+                });
+            }, getValidationDebounceMs());
         });
     }
 
+    private readyDebounce: ReturnType<typeof setTimeout> | undefined;
+
     public triggerUpdateDiagnostics(document: vscode.TextDocument) {
+        if (document.languageId !== 'xml') return;
         if (this.timeout) {
             clearTimeout(this.timeout);
             this.timeout = undefined;
         }
-        this.timeout = setTimeout(() => this.updateDiagnostics(document), 500);
+        this.timeout = setTimeout(() => this.updateDiagnostics(document), getValidationDebounceMs());
     }
 
     public async updateDiagnostics(document: vscode.TextDocument) {
         if (document.languageId !== 'xml') return;
 
-        // 检查验证是否启用
-        const config = vscode.workspace.getConfiguration('mybatisToolkit.validation');
-        if (!config.get<boolean>('enable', true)) {
+        if (!isValidationEnabled()) {
             this.diagnosticCollection.clear();
             return;
         }
@@ -758,6 +765,14 @@ export class SqlValidationProvider implements vscode.Disposable {
     }
 
     public dispose() {
+        if (this.timeout) {
+            clearTimeout(this.timeout);
+            this.timeout = undefined;
+        }
+        if (this.readyDebounce) {
+            clearTimeout(this.readyDebounce);
+            this.readyDebounce = undefined;
+        }
         this.diagnosticCollection.dispose();
     }
 }

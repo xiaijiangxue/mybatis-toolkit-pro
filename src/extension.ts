@@ -17,17 +17,22 @@ import { CodeGenerationService } from './services/CodeGenerationService';
 import { MethodSqlGenerator } from './services/MethodSqlGenerator';
 import { SqlHighlightingProvider, SQL_SEMANTIC_TOKEN_LEGEND } from './providers/SqlHighlightingProvider';
 import { MyBatisHoverProvider } from './providers/MyBatisHoverProvider';
+import { QueryResultsPanel } from './panels/QueryResultsPanel';
+import { QUERY_DEFAULT_MAX_ROWS } from './constants';
+import { QueryResult } from './types';
+import { getQueryResultDateFormats } from './config';
 
 export function activate(context: vscode.ExtensionContext) {
     const outputChannel = vscode.window.createOutputChannel("MyBatis Toolkit");
     outputChannel.appendLine('MyBatis Toolkit Pro 正在激活...');
 
-    // 1. 初始化服务
+    // 1. 初始化服务（延迟一帧启动索引，让激活先完成，减少首屏卡顿）
     const indexer = ProjectIndexer.getInstance(outputChannel);
-    indexer.init(); // 异步启动
+    setImmediate(() => indexer.init());
 
     const dbService = DatabaseService.getInstance();
     dbService.init();
+    vscode.commands.executeCommand('setContext', 'mybatisToolkit.connected', dbService.isConnected());
 
     const codeGenService = new CodeGenerationService(dbService);
 
@@ -94,12 +99,14 @@ export function activate(context: vscode.ExtensionContext) {
     }
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor(editor => {
-            if (editor) {
+            if (editor && editor.document.languageId === 'xml') {
                 sqlValidationProvider.triggerUpdateDiagnostics(editor.document);
             }
         }),
         vscode.workspace.onDidChangeTextDocument(event => {
-            sqlValidationProvider.triggerUpdateDiagnostics(event.document);
+            if (event.document.languageId === 'xml') {
+                sqlValidationProvider.triggerUpdateDiagnostics(event.document);
+            }
         })
     );
 
@@ -281,6 +288,115 @@ export function activate(context: vscode.ExtensionContext) {
         }),
         vscode.commands.registerCommand('mybatisToolkit.refresh', async () => {
             await dbService.refreshTables();
+        }),
+        vscode.commands.registerCommand('mybatisToolkit.selectConnection', async () => {
+            const connections = dbService.getConnections();
+            if (connections.length === 0) {
+                vscode.window.showInformationMessage('请先在数据库浏览器中添加连接。');
+                return;
+            }
+            const picked = await vscode.window.showQuickPick(
+                connections.map(c => ({
+                    label: c.name,
+                    description: `${c.type} · ${c.user}@${c.host}:${c.port}/${c.database}`,
+                    id: c.id
+                })),
+                { placeHolder: '选择要连接的数据库' }
+            );
+            if (picked && picked.id) {
+                await dbService.connect(picked.id);
+                vscode.commands.executeCommand('setContext', 'mybatisToolkit.connected', true);
+            }
+        }),
+        vscode.commands.registerCommand('mybatisToolkit.newQuery', async () => {
+            const doc = await vscode.workspace.openTextDocument({ language: 'sql', content: '' });
+            await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One });
+        }),
+        vscode.commands.registerCommand('mybatisToolkit.runSelectedSql', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || editor.document.languageId !== 'sql') {
+                vscode.window.showWarningMessage('请在 SQL 编辑器中执行，或先使用「新建查询窗口」打开 SQL 文件。');
+                return;
+            }
+            if (!dbService.isConnected()) {
+                vscode.window.showWarningMessage('请先点击标题栏「选择数据库」连接后再执行。');
+                return;
+            }
+            const selection = editor.selection;
+            const text = selection.isEmpty ? editor.document.getText() : editor.document.getText(selection);
+            const sql = text.trim();
+            if (!sql) {
+                vscode.window.showWarningMessage('请选中要执行的 SQL 或确保文档非空。');
+                return;
+            }
+            const panel = QueryResultsPanel.createOrShow(context.extensionUri, '查询结果');
+            const result = await dbService.executeSql(sql, QUERY_DEFAULT_MAX_ROWS);
+            if (result.message && result.columns.length === 0 && result.rows.length === 0) {
+                panel.showError(result.message);
+            } else {
+                panel.showResult(result, sql, getQueryResultDateFormats());
+            }
+        }),
+        vscode.commands.registerCommand('mybatisToolkit.runAllSql', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || editor.document.languageId !== 'sql') {
+                vscode.window.showWarningMessage('请在 SQL 编辑器中执行。');
+                return;
+            }
+            if (!dbService.isConnected()) {
+                vscode.window.showWarningMessage('请先点击标题栏「选择数据库」连接后再执行。');
+                return;
+            }
+            const fullText = editor.document.getText();
+            const statements = fullText.split(';').map(s => s.trim()).filter(Boolean);
+            if (statements.length === 0) {
+                vscode.window.showWarningMessage('文档中无有效 SQL 语句。');
+                return;
+            }
+            const formats = getQueryResultDateFormats();
+            const total = statements.length;
+            for (let i = 0; i < statements.length; i++) {
+                const sql = statements[i];
+                const runSql = sql.endsWith(';') ? sql : sql + ';';
+                const title = total > 1 ? `查询结果 (${i + 1}/${total})` : '查询结果';
+                const panel = QueryResultsPanel.createNew(context.extensionUri, title);
+                const result = await dbService.executeSql(runSql, QUERY_DEFAULT_MAX_ROWS);
+                if (result.message && result.columns.length === 0 && result.rows.length === 0 && !result.message.includes('空语句')) {
+                    panel.showError(result.message);
+                } else if (result.columns.length > 0 || result.rows.length > 0) {
+                    panel.showResult(result, sql, formats);
+                } else {
+                    panel.showResult(
+                        { columns: [], rows: [], totalFetched: 0, affectedRows: result.affectedRows, executionTimeMs: result.executionTimeMs, message: result.message ?? '执行成功，无结果集' },
+                        sql,
+                        formats
+                    );
+                }
+            }
+        }),
+        vscode.commands.registerCommand('mybatisToolkit.showFullStructure', async () => {
+            if (!dbService.isConnected()) {
+                vscode.window.showWarningMessage('请先点击标题栏「选择数据库」连接后再执行。');
+                return;
+            }
+            const panel = QueryResultsPanel.createOrShow(context.extensionUri, '全部结构');
+            const tables = await dbService.getTableNames();
+            const columns = ['表名', '列名', '类型', '可空', '键', '默认', '注释'];
+            const rows: any[][] = [];
+            const maxTables = 200;
+            for (let i = 0; i < Math.min(tables.length, maxTables); i++) {
+                const cols = await dbService.getTableSchema(tables[i]);
+                for (const c of cols) {
+                    rows.push([tables[i], c.Field, c.Type, c.Null, c.Key, c.Default ?? '', c.Comment ?? '']);
+                }
+            }
+            const result: QueryResult = {
+                columns,
+                rows,
+                totalFetched: rows.length,
+                message: tables.length > maxTables ? `仅显示前 ${maxTables} 张表的结构。` : undefined
+            };
+            panel.showResult(result, undefined, getQueryResultDateFormats());
         }),
         vscode.commands.registerCommand('mybatisToolkit.openTableSchema', async (tableName: string) => {
             const uri = vscode.Uri.parse(`${SchemaDocumentProvider.scheme}:///${tableName}.md`);

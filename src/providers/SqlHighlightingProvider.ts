@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { DatabaseService } from '../services/DatabaseService';
+import { getDefaultDatabaseType } from '../config';
 import { DialectFactory } from '../services/dialects/DialectFactory';
 import { Dialect } from '../services/dialects/Dialect';
 
@@ -119,9 +120,7 @@ export class SqlHighlightingProvider implements vscode.DocumentSemanticTokensPro
         if (activeType) {
             return DialectFactory.getDialect(activeType);
         }
-        const config = vscode.workspace.getConfiguration('mybatisToolkit');
-        const defaultType = config.get<string>('defaultDatabaseType', 'MySQL');
-        return DialectFactory.getDialect(defaultType);
+        return DialectFactory.getDialect(getDefaultDatabaseType());
     }
 
     private tokenize(text: string, dialect: Dialect): Token[] {

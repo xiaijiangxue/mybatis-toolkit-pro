@@ -1,3 +1,15 @@
+/** 索引阶段并发解析文件数，避免同时打开过多文档 */
+export const INDEX_PARSE_CONCURRENCY = 20;
+/** 文件变更后延迟合并再触发索引更新（毫秒） */
+export const INDEX_DEBOUNCE_MS = 300;
+/** 文档变更后延迟执行 SQL 诊断（毫秒） */
+export const VALIDATION_DEBOUNCE_MS = 400;
+
+/** 查询结果默认每页行数（前端分页） */
+export const QUERY_DEFAULT_PAGE_SIZE = 100;
+/** 单次 SQL 最多返回行数（服务端限制，保证性能） */
+export const QUERY_DEFAULT_MAX_ROWS = 500;
+
 export const SQL_KEYWORDS = [
     "ACCESSIBLE", "ADD", "ALL", "ALTER", "ANALYZE", "AND", "AS", "ASC", "ASENSITIVE", "BEFORE", "BETWEEN", "BIGINT", "BINARY",
     "BLOB", "BOTH", "BY", "CALL", "CASCADE", "CASE", "CHANGE", "CHAR", "CHARACTER", "CHECK", "COLLATE", "COLUMN", "CONDITION",

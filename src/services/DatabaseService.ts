@@ -1,17 +1,15 @@
 import * as vscode from 'vscode';
-import * as mysql from 'mysql2/promise';
-import { ColumnInfo, ConnectionConfig } from '../types';
-
-
+import { ColumnInfo, ConnectionConfig, QueryResult } from '../types';
+import { createDbAdapter, IDbAdapter } from './db';
+import { getConnections as getConfigConnections, getLegacyDatabaseConfig } from '../config';
 
 export class DatabaseService {
     private static instance: DatabaseService;
     private connections: ConnectionConfig[] = [];
     private activeConnectionId: string | undefined;
-    private activePool: mysql.Pool | undefined;
+    private activeAdapter: IDbAdapter | undefined;
 
-    // 缓存现在特定于活动连接
-    private tableCache: Map<string, string> = new Map(); // 表名 -> 注释
+    private tableCache: Map<string, string> = new Map();
     private schemaCache: Map<string, ColumnInfo[]> = new Map();
 
     private outputChannel: vscode.OutputChannel;
@@ -32,34 +30,21 @@ export class DatabaseService {
         return DatabaseService.instance;
     }
 
-    // ... [omitted loadConnections, add/remove/save methods] ...
-
-    // (Assume other methods are unchanged up to refreshTables)
-
-    // 我需要小心 replace_file_content 的范围。
-    // 针对特定块更安全。
-    // 让我们替换属性和 refreshTables 方法。
-
-
     private loadConnections() {
-        const config = vscode.workspace.getConfiguration('mybatisToolkit');
-        this.connections = config.get<ConnectionConfig[]>('connections', []);
-
-        // 如果不存在连接，则加载可能存在的旧配置作为连接
+        this.connections = getConfigConnections();
         if (this.connections.length === 0) {
-            const dbConfig = vscode.workspace.getConfiguration('mybatisToolkit.database');
-            if (dbConfig.get('host') && dbConfig.get('database')) {
-                const legacy: ConnectionConfig = {
+            const legacy = getLegacyDatabaseConfig();
+            if (legacy.host && legacy.database) {
+                this.addConnection({
                     id: 'default',
                     name: 'Default',
-                    host: dbConfig.get('host', 'localhost'),
-                    port: dbConfig.get('port', 3306),
-                    user: dbConfig.get('user', 'root'),
-                    password: dbConfig.get('password', ''),
-                    database: dbConfig.get('database', ''),
-                    type: 'MySQL'
-                };
-                this.addConnection(legacy);
+                    type: 'MySQL',
+                    host: legacy.host,
+                    port: legacy.port,
+                    user: legacy.user,
+                    password: legacy.password,
+                    database: legacy.database
+                });
             }
         }
     }
@@ -85,9 +70,6 @@ export class DatabaseService {
         const index = this.connections.findIndex(c => c.id === config.id);
         if (index !== -1) {
             this.connections[index] = config;
-            // 如果更新活动连接，也许重新连接或至少确保下次使用新配置??
-            // 目前，如果用户更改参数，通过手动重新连接。
-            // 最小化：仅保存。
             await this.saveConnections();
         }
     }
@@ -104,41 +86,29 @@ export class DatabaseService {
 
         await this.disconnect();
 
-        this.outputChannel.appendLine(`正在连接到 ${config.name} (${config.host})...`);
+        this.outputChannel.appendLine(`正在连接到 ${config.name} (${config.host}) [${config.type}]...`);
         try {
-            this.activePool = mysql.createPool({
-                host: config.host,
-                port: config.port,
-                user: config.user,
-                password: config.password,
-                database: config.database,
-                waitForConnections: true,
-                connectionLimit: 10,
-                queueLimit: 0
-            });
-
-            // 测试连接
-            const connection = await this.activePool.getConnection();
-            connection.release();
-
+            const adapter = createDbAdapter(config);
+            await adapter.connect(config);
+            this.activeAdapter = adapter;
             this.activeConnectionId = id;
-            this.outputChannel.appendLine(`已连接到数据库: ${config.database}`);
 
+            this.outputChannel.appendLine(`已连接到数据库: ${config.database}`);
             await this.refreshTables();
             this._onDidReady.fire();
-            this._onDidConfigChange.fire(); // 通知 UI 更新图标
+            this._onDidConfigChange.fire();
         } catch (error: any) {
             this.outputChannel.appendLine(`连接 ${config.name} 失败: ${error.message}`);
             vscode.window.showErrorMessage(`连接 ${config.name} 失败: ${error.message}`);
-            this.activePool = undefined;
+            this.activeAdapter = undefined;
             this.activeConnectionId = undefined;
         }
     }
 
     public async disconnect() {
-        if (this.activePool) {
-            await this.activePool.end();
-            this.activePool = undefined;
+        if (this.activeAdapter) {
+            await this.activeAdapter.disconnect();
+            this.activeAdapter = undefined;
         }
         this.activeConnectionId = undefined;
         this.tableCache.clear();
@@ -157,24 +127,21 @@ export class DatabaseService {
     }
 
     public async init() {
-        // 自动连接到第一个可用连接或上次使用的 (待办)
         if (this.connections.length > 0) {
-            // await this.connect(this.connections[0].id);
+            // 可选：自动连接上次使用的连接
         }
     }
 
     public async refreshTables() {
-        if (!this.activePool) return;
+        if (!this.activeAdapter) return;
         try {
-            // SHOW TABLE STATUS 返回名称、注释等
-            const [rows] = await this.activePool.query<mysql.RowDataPacket[]>('SHOW TABLE STATUS');
+            const names = await this.activeAdapter.getTableNames();
             this.tableCache.clear();
             this.schemaCache.clear();
-            rows.forEach(row => {
-                const tableName = row['Name'];
-                const comment = row['Comment'] || '';
-                this.tableCache.set(tableName, comment);
-            });
+            for (const name of names) {
+                const comment = this.activeAdapter.getTableComment(name) || '';
+                this.tableCache.set(name, comment);
+            }
             this.outputChannel.appendLine(`已刷新 ${this.tableCache.size} 张表。`);
         } catch (error: any) {
             this.outputChannel.appendLine(`获取表失败: ${error.message}`);
@@ -194,14 +161,12 @@ export class DatabaseService {
     }
 
     public async getTableSchema(tableName: string): Promise<ColumnInfo[]> {
-        if (!this.activePool) return [];
+        if (!this.activeAdapter) return [];
         if (this.schemaCache.has(tableName)) {
             return this.schemaCache.get(tableName)!;
         }
-
         try {
-            const [rows] = await this.activePool.query<mysql.RowDataPacket[]>(`SHOW FULL COLUMNS FROM ${mysql.escapeId(tableName)}`);
-            const columns = rows as ColumnInfo[];
+            const columns = await this.activeAdapter.getTableSchema(tableName);
             this.schemaCache.set(tableName, columns);
             return columns;
         } catch (error: any) {
@@ -211,13 +176,9 @@ export class DatabaseService {
     }
 
     public async getCreateTableStatement(tableName: string): Promise<string> {
-        if (!this.activePool) return '';
+        if (!this.activeAdapter) return '';
         try {
-            const [rows] = await this.activePool.query<mysql.RowDataPacket[]>(`SHOW CREATE TABLE ${mysql.escapeId(tableName)}`);
-            if (rows.length > 0 && rows[0]['Create Table']) {
-                return rows[0]['Create Table'];
-            }
-            return '';
+            return await this.activeAdapter.getCreateTableStatement(tableName);
         } catch (error: any) {
             this.outputChannel.appendLine(`获取 ${tableName} 的 DDL 失败: ${error.message}`);
             return '';
@@ -225,10 +186,18 @@ export class DatabaseService {
     }
 
     public isConnected(): boolean {
-        return !!this.activePool;
+        return !!this.activeAdapter;
     }
 
     public isReady(): boolean {
-        return !!this.activePool && this.tableCache.size > 0;
+        return !!this.activeAdapter && this.tableCache.size > 0;
+    }
+
+    /** 执行 SQL（用于查询窗口），最多返回 maxRows 行以保证性能 */
+    public async executeSql(sql: string, maxRows = 500): Promise<QueryResult> {
+        if (!this.activeAdapter) {
+            return { columns: [], rows: [], totalFetched: 0, message: '请先选择并连接数据库' };
+        }
+        return this.activeAdapter.executeSql(sql, maxRows);
     }
 }

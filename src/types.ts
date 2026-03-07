@@ -87,3 +87,15 @@ export interface ColumnInfo {
 export interface IndexUpdateEvent {
     uri: vscode.Uri;
 }
+
+/** 执行 SQL 的查询结果，用于查询窗口展示，支持分页；DML 时包含影响行数与执行时长 */
+export interface QueryResult {
+    columns: string[];
+    rows: any[][];
+    totalFetched: number;
+    message?: string;
+    /** INSERT/UPDATE/DELETE 影响行数 */
+    affectedRows?: number;
+    /** 执行耗时（毫秒） */
+    executionTimeMs?: number;
+}

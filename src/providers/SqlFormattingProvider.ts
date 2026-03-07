@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 
 import { DatabaseService } from '../services/DatabaseService';
+import { getDefaultDatabaseType, getFormattingIndentSize } from '../config';
 import { DialectFactory } from '../services/dialects/DialectFactory';
 import { Dialect } from '../services/dialects/Dialect';
 
@@ -37,14 +38,12 @@ export class SqlFormattingProvider implements vscode.DocumentFormattingEditProvi
         if (activeType) {
             return DialectFactory.getDialect(activeType);
         }
-        const config = vscode.workspace.getConfiguration('mybatisToolkit');
-        const defaultType = config.get<string>('defaultDatabaseType', 'MySQL');
-        return DialectFactory.getDialect(defaultType);
+        return DialectFactory.getDialect(getDefaultDatabaseType());
     }
 
     public provideDocumentFormattingEdits(document: vscode.TextDocument, options: vscode.FormattingOptions, token: vscode.CancellationToken): vscode.TextEdit[] {
         const text = document.getText();
-        const indentSize = options.tabSize;
+        const indentSize = getFormattingIndentSize();
 
         // 1. 获取 Dialect
         const dialect = this.getDialect();

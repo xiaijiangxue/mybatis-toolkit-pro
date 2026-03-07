@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { JavaInterface, JavaClass, MapperXml, StatementInfo, ResultMapInfo } from '../types';
 import { JavaAstUtils } from '../utils/JavaAstUtils';
+import { getNavigationExclude, getIndexParseConcurrency, getIndexDebounceMs } from '../config';
 
 export class ProjectIndexer {
     private static instance: ProjectIndexer;
@@ -16,8 +17,26 @@ export class ProjectIndexer {
     private _onDidUpdateIndex = new vscode.EventEmitter<void>();
     public readonly onDidUpdateIndex = this._onDidUpdateIndex.event;
 
+    private pendingUpdateTimeout: ReturnType<typeof setTimeout> | undefined;
+    private pendingFire = false;
+
     private constructor(outputChannel: vscode.OutputChannel) {
         this.outputChannel = outputChannel;
+    }
+
+    /** 将多文件变更合并为一次索引更新通知，降低 CodeLens/验证等重复计算 */
+    private scheduleFireIndexUpdated(): void {
+        if (this.pendingUpdateTimeout) {
+            clearTimeout(this.pendingUpdateTimeout);
+        }
+        this.pendingFire = true;
+        this.pendingUpdateTimeout = setTimeout(() => {
+            this.pendingUpdateTimeout = undefined;
+            if (this.pendingFire) {
+                this.pendingFire = false;
+                this._onDidUpdateIndex.fire();
+            }
+        }, getIndexDebounceMs());
     }
 
     public static getInstance(outputChannel?: vscode.OutputChannel): ProjectIndexer {
@@ -31,34 +50,41 @@ export class ProjectIndexer {
         this.outputChannel.appendLine('[索引器] 开始全项目扫描...');
         const start = Date.now();
 
-        const config = vscode.workspace.getConfiguration('mybatisToolkit');
-        // 同步更新默认排除列表，确保初始扫描时生效
-        const excludes = config.get<string[]>('navigation.exclude',
-            ['target', 'build', 'bin', 'out', 'dist', 'node_modules', '.git']);
+        const excludes = getNavigationExclude();
         const excludePattern = `**/{${excludes.join(',')}}/**`;
+        // 提高上限，确保多模块、mapper 子目录（如 mapper/order/OrderMapper.xml）均被扫描
+        const maxResults = 100000;
 
-        const javaFiles = await vscode.workspace.findFiles('**/*.java', excludePattern);
-        await Promise.all(javaFiles.map(file => this.parseJavaFile(file)));
+        const javaFiles = await vscode.workspace.findFiles('**/*.java', excludePattern, maxResults);
+        await this.parseFilesInBatches(javaFiles, file => this.parseJavaFile(file));
 
-        const xmlFiles = await vscode.workspace.findFiles('**/*.xml', excludePattern);
-        await Promise.all(xmlFiles.map(file => this.parseXmlFile(file)));
+        const xmlFiles = await vscode.workspace.findFiles('**/*.xml', excludePattern, maxResults);
+        await this.parseFilesInBatches(xmlFiles, file => this.parseXmlFile(file));
 
         this.outputChannel.appendLine(`[索引器] 扫描完成，耗时 ${Date.now() - start}ms。Mappers: ${this.javaMap.size}, DTOs: ${this.dtoMap.size}, XML: ${this.xmlMap.size}`);
         this._onDidUpdateIndex.fire();
 
+        // 监听所有层级的 java/xml，包括 mapper 下子目录
         const watcher = vscode.workspace.createFileSystemWatcher('**/*.{java,xml}');
         watcher.onDidChange(async uri => await this.handleFileChange(uri));
         watcher.onDidCreate(async uri => await this.handleFileChange(uri));
         watcher.onDidDelete(async uri => this.handleFileDelete(uri));
     }
 
+    /** 限制并发解析数量，避免大仓库下同时打开大量文档导致卡顿 */
+    private async parseFilesInBatches<T>(files: vscode.Uri[], parseOne: (uri: vscode.Uri) => Promise<T>): Promise<void> {
+        const concurrency = getIndexParseConcurrency();
+        for (let i = 0; i < files.length; i += concurrency) {
+            const chunk = files.slice(i, i + concurrency);
+            await Promise.all(chunk.map(file => parseOne(file)));
+        }
+    }
+
     /**
      * 检查文件路径是否应该被排除
      */
     private shouldExclude(uri: vscode.Uri): boolean {
-        const config = vscode.workspace.getConfiguration('mybatisToolkit');
-        const excludes = config.get<string[]>('navigation.exclude',
-            ['target', 'build', 'bin', 'out', 'dist', 'node_modules', '.git']);
+        const excludes = getNavigationExclude();
 
         const fsPath = JavaAstUtils.normalizePath(uri.fsPath);
         // 检查路径中是否包含排除的目录
@@ -80,7 +106,7 @@ export class ProjectIndexer {
         } else if (uri.fsPath.endsWith('.xml')) {
             await this.parseXmlFile(uri);
         }
-        this._onDidUpdateIndex.fire();
+        this.scheduleFireIndexUpdated();
     }
 
     private handleFileDelete(uri: vscode.Uri) {
@@ -94,7 +120,7 @@ export class ProjectIndexer {
         for (const [key, val] of this.xmlMap) {
             if (JavaAstUtils.normalizePath(val.fileUri.fsPath) === normPath) this.xmlMap.delete(key);
         }
-        this._onDidUpdateIndex.fire();
+        this.scheduleFireIndexUpdated();
     }
 
     private async parseJavaFile(uri: vscode.Uri) {

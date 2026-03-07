@@ -20,27 +20,26 @@ export class JavaAstUtils {
     }
 
     /**
-     * 提取父类名称 (简单名称) 如果存在。
+     * 提取父类名称 (简单名称)，仅 class 的 extends。泛型会擦除，如 Base<T> -> Base。
      */
     public static getParentClassName(content: string): string | null {
-        // 公共类 Foo 继承 Bar 实现 Baz
-        const match = content.match(/class\s+\w+(?:\s*<[^>]+>)?\s+extends\s+([\w<>]+)/);
+        const match = content.match(/class\s+\w+(?:\s*<[^>]+>)?\s+extends\s+([\w.<>, ]+?)(?:\s+implements\s|$)/);
         if (match) {
-            const ptr = match[1];
-            // 移除泛型（如果有）: Base<T> -> Base
+            const ptr = match[1].trim();
             return ptr.split('<')[0].trim();
         }
         return null;
     }
 
     /**
-     * 解析导入语句以解析类型。
+     * 解析导入语句以解析类型（含 static import）。
      * 返回 Map<简单名称, 全限定名称>
      */
     public static getImports(content: string): Map<string, string> {
         const imports = new Map<string, string>();
         const lines = content.split('\n');
-        const importRegex = /import\s+([\w.]+);/;
+        // 普通 import: import pkg.Type; 或 import pkg.Type.*;
+        const importRegex = /import\s+(?:static\s+)?([\w.]+)(?:\.\*)?\s*;/;
 
         for (const line of lines) {
             const match = line.match(importRegex);
@@ -55,6 +54,35 @@ export class JavaAstUtils {
     }
 
     /**
+     * 从完整类型字符串中取出简单类型名（擦除泛型、数组），用于解析与展示。
+     * 例如: List<User> -> List, Map<String,Object> -> Map, String[] -> String
+     */
+    public static getSimpleTypeName(typeStr: string): string {
+        if (!typeStr || !typeStr.trim()) return typeStr;
+        const t = typeStr.trim();
+        const genericStart = t.indexOf('<');
+        const arrayStart = t.indexOf('[');
+        let end = t.length;
+        if (genericStart >= 0 && (arrayStart < 0 || genericStart < arrayStart)) end = genericStart;
+        else if (arrayStart >= 0) end = arrayStart;
+        return t.slice(0, end).trim();
+    }
+
+    /**
+     * 从完整类型字符串中取出“主”类型简单名（用于 resultType 等解析）。
+     * 例如: List<User> -> User, Optional<Order> -> Order
+     */
+    public static getFirstGenericTypeName(typeStr: string): string | null {
+        const t = typeStr.trim();
+        const m = t.match(/<([^<>]+)>/);
+        if (!m) return null;
+        const inner = m[1].trim();
+        const comma = inner.indexOf(',');
+        const first = comma >= 0 ? inner.slice(0, comma).trim() : inner;
+        return this.getSimpleTypeName(first);
+    }
+
+    /**
      * 从 DTO/Entity 类中提取字段及其文档。
      */
     public static getFields(content: string): Map<string, FieldInfo> {
@@ -64,8 +92,8 @@ export class JavaAstUtils {
         let docBuffer: string[] = [];
         let inBlockComment = false;
 
-        // 字段声明模式: [access] [static] [final] Type name;
-        const fieldRegex = /^\s*(?:private|protected|public)\s+(?:static\s+|final\s+)*(.+?)\s+(\w+)\s*(?:=.*)?;$/;
+        // 字段声明模式: [access] [static] [final] Type name; 支持泛型类型如 List<OrderItem>
+        const fieldRegex = /^\s*(?:private|protected|public)\s+(?:static\s+|final\s+)*(.+)\s+(\w+)\s*(?:=.*)?;$/;
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
@@ -106,7 +134,7 @@ export class JavaAstUtils {
             // 3. Field Match
             const match = line.match(fieldRegex);
             if (match) {
-                const type = match[1];
+                const type = match[1].trim();
                 const name = match[2];
 
                 fields.set(name, {
@@ -183,16 +211,18 @@ export class JavaAstUtils {
             if (line.startsWith('//') || line.startsWith('*')) continue;
             if (line.startsWith('@')) continue;
 
-            // 2. Method Match
+            // 2. Method Match（含返回值类型提取，支持泛型如 List<User>）
             const match = lines[i].match(methodPattern);
             if (match) {
                 const methodName = match[1];
                 const paramsStr = match[2];
+                const returnType = this.extractReturnType(lines[i], methodName);
                 const methodInfo: MethodInfo = {
                     line: i,
                     params: this.parseParams(paramsStr),
                     paramDocs: currentParamDocs,
-                    javaDoc: javaDocBuffer.length > 0 ? javaDocBuffer.join('\n') : undefined
+                    javaDoc: javaDocBuffer.length > 0 ? javaDocBuffer.join('\n') : undefined,
+                    returnType: returnType ?? undefined
                 };
 
                 methods.set(methodName, methodInfo);
@@ -207,22 +237,54 @@ export class JavaAstUtils {
         return methods;
     }
 
+    /**
+     * 从方法签名行提取返回值类型（支持泛型，如 List<User>、Map<String,Object>）。
+     */
+    private static extractReturnType(signatureLine: string, methodName: string): string | null {
+        const idx = signatureLine.indexOf(methodName);
+        if (idx <= 0) return null;
+        let prefix = signatureLine.slice(0, idx).trim();
+        // 去掉 public / abstract 等修饰
+        prefix = prefix.replace(/^\s*(?:public|protected|private|abstract|static|final|default)\s+/g, '').trim();
+        if (!prefix) return null;
+        return prefix;
+    }
+
     private static parseParams(paramsStr: string): Map<string, string> {
         const params = new Map<string, string>();
         if (!paramsStr || !paramsStr.trim()) return params;
 
-        const parts = paramsStr.split(',');
+        // 按逗号分割时需考虑泛型内的逗号，简单按顶层逗号分割
+        const parts = this.splitParams(paramsStr);
 
         for (const part of parts) {
             const cleanPart = part.replace(/@\w+(?:\("[^"]*"\))?/g, '').trim(); // 移除注解
             const tokens = cleanPart.split(/\s+/);
             if (tokens.length >= 2) {
                 const name = tokens[tokens.length - 1];
-                const type = tokens.slice(0, tokens.length - 1).join(' ');
+                const type = tokens.slice(0, tokens.length - 1).join(' ').trim();
                 params.set(name, type);
             }
         }
         return params;
+    }
+
+    /** 按参数列表逗号分割，避免把 Map<K,V> 中的逗号拆开。 */
+    private static splitParams(paramsStr: string): string[] {
+        const result: string[] = [];
+        let depth = 0;
+        let start = 0;
+        for (let i = 0; i < paramsStr.length; i++) {
+            const c = paramsStr[i];
+            if (c === '<' || c === '(' || c === '[') depth++;
+            else if (c === '>' || c === ')' || c === ']') depth--;
+            else if (c === ',' && depth === 0) {
+                result.push(paramsStr.slice(start, i));
+                start = i + 1;
+            }
+        }
+        if (start < paramsStr.length) result.push(paramsStr.slice(start));
+        return result;
     }
 
     public static normalizePath(fsPath: string): string {
