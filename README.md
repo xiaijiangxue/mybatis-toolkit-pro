@@ -2,98 +2,135 @@
 
 [English](README_en.md) | [中文](README.md)
 
-专为 VS Code 设计的专业 MyBatis 开发工具包，旨在通过智能导航、SQL 验证和丰富的语法高亮提高您的生产力。
+专为 VS Code 设计的专业 MyBatis 开发工具包，通过智能导航、SQL 验证、多数据源管理与内置查询执行，提升 MyBatis 与数据库开发效率。
+
+---
 
 ## 安装
 
-您可以通过以下方式安装本插件：
+- **VS Code 扩展市场**：搜索 “MyBatis Toolkit Pro” 安装。
+- **VSIX**：在 [Releases](https://github.com/xiyeming/mybatis-toolkit-pro/releases) 下载 `.vsix`，通过 “从 VSIX 安装…” 安装。
 
-1.  **VS Code 插件市场**：在扩展商店搜索 "MyBatis Toolkit Pro" 并安装。
-2.  **VSIX 安装**：从 [Releases](https://github.com/xiyeming/mybatis-toolkit-pro/releases) 页面下载最新的 `.vsix` 文件，在 VS Code 中通过 "Install from VSIX..." 进行安装。
+**要求**：VS Code 1.100.0 及以上。
 
-## 功能特性
+---
 
-### 1. 智能导航
--   **跳转到定义**：
-    -   **数据库表**：点击 XML 中的表名跳转到虚拟架构视图。
-    -   **ResultMap 属性**：按住 Cmd+Click (Ctrl+Click) 点击 `<resultMap>` 中的 `property` 属性跳转到 Java 字段定义。
-    -   **Java 类**：跳转到 `resultType` 或 `parameterType` 对应的 Java 类。
--   **悬停提示**：
-    -   **MyBatis 参数**：悬停在 XML 中的 `#{variable}` 或 `${variable}` 上，可查看对应的 Java 类型及 Javadoc 注释。
+## 功能概览
 
-### 2. 强大的 SQL 高亮与格式化
--   **多数据库方言支持**：全面支持 **MySQL, PostgreSQL, Oracle, SQL Server, SQLite, DB2, H2, MariaDB** 8 种主流数据库方言。
--   **增强高亮**：根据所选方言，智能高亮 SQL 关键字、系统函数及 MyBatis 参数 (`#{...}`, `${...}`)。例如，在 PostgreSQL 模式下会高亮 `RETURNING`, `ILIKE` 等特有关键字。
--   **智能格式化**：
-    -   根据方言规则自动处理引号（如 MySQL 的 \`，SQL Server 的 `[]`，Oracle/PG 的 `""`）。
-    -   支持复杂的 SQL 结构格式化，包括嵌套子查询、`UNION`、`CASE WHEN` 等。
-    -   **注释保留**：格式化时完整保留 XML 注释 (`<!-- -->`) 和 SQL 注释 (`--`)。
+| 模块           | 说明 |
+|----------------|------|
+| 智能导航       | Mapper ↔ XML 跳转、表名/ResultMap 属性/Java 类跳转、参数悬停与类型提示 |
+| SQL 高亮与格式化 | 8 种数据库方言、关键字/函数/参数高亮、可配置引号与缩进 |
+| 数据库管理     | 多连接、数据库浏览器、表结构查看、执行 SQL 与结果展示 |
+| 查询与结果     | 新建查询、执行选中/全部 SQL、分页、行号、可配置日期格式、多结果窗口 |
+| 验证           | 表/列存在性、resultMap/resultType 与 Java 属性匹配、嵌套 association/collection |
+| 代码生成       | 从表生成 Entity / Mapper 接口 / XML |
+| 方法名生成 SQL | 根据 Mapper 方法名生成 XML SQL（Quick Fix） |
 
-> [!TIP]
-> **提示**：插件会自动根据当前激活的数据库连接推断方言。您也可以在设置中配置 `mybatisToolkit.defaultDatabaseType` 来指定默认使用的数据库方言。
+---
 
-### 3. 数据库管理器 & 多数据源
--   **多连接管理**：支持连接多种数据库（MySQL, PostgreSQL, Oracle, SQL Server, SQLite, DB2, H2, MariaDB）。
--   **虚拟架构视图**：直接在 VS Code 中查看表结构和**注释**。
--   **注释提示**：
-    -   数据库资源管理器树状图中直接显示表和字段的注释。
-    -   鼠标悬停在表名或字段名上时显示详细注释信息。
+## 一、智能导航
 
-### 4. 高级验证
--   **SQL 实时验证**：实时验证 SQL 中的表名和列名。
--   **类型安全**：
-    -   **结果映射**：检查 `resultMap` 和 `resultType` 中的字段是否存在于 Java 类中。
-    -   **SQL 返回值**：验证 SQL `SELECT` 的列是否与 Java 返回对象的属性匹配（自动处理下划线转驼峰）。
-    -   **嵌套验证**：正确处理嵌套 `<association>` 和 `<collection>` 标签中的属性验证。
-    -   **ResultMap 白名单**：自动识别 `resultMap` 中显式映射的列，避免误报。
+- **跳转到定义**
+  - **数据库表**：在 XML 中点击表名 → 跳转到虚拟架构视图。
+  - **ResultMap 属性**：在 `<resultMap>` 的 `property` 上 **Ctrl+Click (Cmd+Click)** → 跳转到 Java 字段。
+  - **Java 类**：`resultType` / `parameterType` 指定类 → 跳转到对应 Java 类。
+- **Mapper ↔ XML**：在 Mapper 接口与对应 XML 之间互相跳转（命令或 CodeLens）。
+- **悬停**：悬停于 `#{variable}` / `${variable}` 可查看 Java 类型与 Javadoc。
 
-### 5. 代码生成器 (Code Generator)
--   **从数据库生成代码**：右键点击数据库表，选择 "Generate Code"，自动生成 Entity、Mapper 接口和 XML 文件。
-    -   自动映射数据类型。
-    -   支持 Lombok 注解。
-    -   包含基础 CRUD 操作。
+---
 
-### 6. 方法名生成 SQL (Generate SQL from Method)
--   **智能 SQL 生成**：在 Mapper 接口中编写方法名（如 `selectUserByNameAndAge`），点击灯泡图标（Quick Fix），自动生成对应的 XML SQL 语句。
-    -   支持 `select`, `update`, `delete`, `count`, `insert` 前缀。
-    -   支持 `And`, `Or` 多条件连接。
-    -   支持 `Like`, `In` 等后缀。
+## 二、SQL 高亮与格式化
 
-## 需求
+- **方言**：支持 MySQL、PostgreSQL、Oracle、SQL Server、SQLite、DB2、H2、MariaDB。
+- **高亮**：关键字、系统函数、MyBatis 参数；方言特有关键字（如 PostgreSQL 的 `RETURNING`、`ILIKE`）。
+- **格式化**：按方言处理引号与缩进，支持子查询、`UNION`、`CASE WHEN` 等；保留 XML 与 SQL 注释。
+- **默认方言**：设置 `mybatisToolkit.defaultDatabaseType`；若已连接数据库，优先使用当前连接类型。
 
--   **VS Code**：版本 1.90.0 或更高。
+---
 
-## 配置
+## 三、数据库管理与查询执行
 
-您可以在 VS Code 设置中自定义扩展。
+### 3.1 数据库浏览器（侧栏 MyBatis）
 
-### 数据库配置（验证和导航所需）
+- **连接**：点击「添加连接」配置主机、端口、用户、密码、数据库类型与库名；支持多数据源。
+- **操作**：连接 / 断开、编辑、移除、刷新。
+- **表与结构**：展开连接查看表；右键表可「打开表结构」或「生成代码」。
 
-```json
-{
-  "mybatisToolkit.database.host": "localhost",
-  "mybatisToolkit.database.port": 3306,
-  "mybatisToolkit.database.user": "root",
-  "mybatisToolkit.database.password": "your_password",
-  "mybatisToolkit.database.database": "your_database"
-}
-```
+### 3.2 执行 SQL
 
-### 外观与格式化
+1. **选择数据库**：在 SQL 编辑器标题栏点击「选择数据库」，或从侧栏连接后，再执行 SQL。
+2. **新建查询**：命令面板执行「新建查询窗口」或从数据库浏览器入口，打开空白 SQL 文件。
+3. **执行方式**：
+   - **执行选中 SQL**：选中一段 SQL，或未选中时按“当前语句”执行。
+   - **执行全部 SQL**：执行当前文件中以分号分隔的所有语句。
 
-```json
-{
-  "mybatisToolkit.formatting.indentSize": 2,
-  "mybatisToolkit.highlights.tableNameColor": "#FFAB70",
-  "mybatisToolkit.highlights.keywordColor": "#C586C0",
-  "mybatisToolkit.highlights.functionColor": "#DCDCAA",
-  "mybatisToolkit.highlights.paramColor": "#9CDCFE"
-}
-```
+### 3.3 快捷键（仅 SQL 编辑器内生效）
+
+| 功能             | Windows / Linux   | macOS        |
+|------------------|------------------|--------------|
+| 执行选中 SQL     | `Ctrl+Shift+,`   | `Cmd+Shift+,` |
+| 执行全部 SQL     | `Ctrl+Shift+.`   | `Cmd+Shift+.` |
+
+可在 **键盘快捷方式**（Ctrl+K Ctrl+S）中搜索「执行选中 SQL」「执行全部 SQL」修改绑定。
+
+### 3.4 查询结果
+
+- **单条执行**：一个结果窗口；可显示影响行数、执行时长、返回行数。
+- **执行全部 SQL**：每条语句对应一个结果标签页（如「查询结果 (1/3)」），便于分别查看。
+- **结果表**：行号列、分页（上一页/下一页）、列宽可拖拽、单元格点击弹出完整内容。
+- **日期时间**：按设置格式显示；列表与弹窗格式一致。
+  - 设置项：`queryResult.datetimeFormat`、`queryResult.dateFormat`、`queryResult.timeFormat`（占位符：`%Y` `%m` `%d` `%H` `%i` `%s`）。
+
+### 3.5 展示全部结构
+
+在数据库浏览器视图标题或相关入口执行「展示全部结构 (表与列)」，在结果面板中查看当前库下所有表与列信息。
+
+---
+
+## 四、高级验证
+
+- **SQL 验证**：实时检查 SQL 中的表名、列名是否存在。
+- **结果映射**：检查 `resultMap` / `resultType` 与 Java 类属性是否一致（含下划线转驼峰）。
+- **嵌套**：支持 `<association>`、`<collection>` 内的属性验证；识别 resultMap 显式列避免误报。
+- 可在设置中通过 `mybatisToolkit.validation.enable` 开关验证。
+
+---
+
+## 五、代码生成
+
+- 在**数据库浏览器**中右键表 →「生成代码 (Entity/Mapper/XML)」。
+- 按提示输入包名，自动生成 Entity、Mapper 接口与 XML，含基础 CRUD 与类型映射，可选 Lombok。
+
+---
+
+## 六、方法名生成 SQL
+
+- 在 Mapper 接口中写方法名（如 `selectUserByNameAndAge`），出现灯泡时选择 Quick Fix，自动在对应 XML 中生成 SQL。
+- 支持前缀：`select`、`update`、`delete`、`count`、`insert`；条件连接：`And`、`Or`；后缀如 `Like`、`In` 等。
+
+---
+
+## 配置摘要
+
+在 VS Code 设置中搜索 “MyBatis” 可看到全部配置。
+
+| 分类     | 配置示例 | 说明 |
+|----------|----------|------|
+| 方言     | `mybatisToolkit.defaultDatabaseType` | 默认数据库类型（高亮/格式化） |
+| 连接     | `mybatisToolkit.connections`         | 多数据源列表；另有 host/port/user/password/database |
+| 验证     | `mybatisToolkit.validation.enable`  | 是否启用 SQL 与映射验证 |
+| 导航     | `mybatisToolkit.navigation.exclude` | 索引排除目录（如 target、node_modules） |
+| 性能     | `indexParseConcurrency`、`indexDebounceMs`、`validationDebounceMs` | 索引并发与防抖 |
+| 查询结果 | `queryResult.datetimeFormat` 等     | 日期时间/日期/时间的显示格式 |
+| 格式化   | `formatting.indentSize`             | SQL 缩进空格数 |
+| 高亮     | `highlights.tableNameColor` 等      | 表名、关键字、函数、参数颜色 |
+
+---
 
 ## 贡献
 
-欢迎通过 [GitHub Issues](https://github.com/xiyeming/mybatis-toolkit-pro/issues) 提交问题或建议。如果您想为项目贡献代码，请 fork 本仓库并提交 Pull Request。
+欢迎通过 [GitHub Issues](https://github.com/xiyeming/mybatis-toolkit-pro/issues) 反馈问题或建议，或提交 Pull Request。
 
 ## 许可证
 

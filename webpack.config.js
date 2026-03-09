@@ -39,6 +39,7 @@ module.exports = {
         hints: false
     },
     ignoreWarnings: [
-        { module: /node_modules\/mysql2/ } // Ignore warnings from mysql2 optional deps
+        { module: /node_modules\/mysql2/ },
+        { module: /node_modules\/pg/ } // pg-native 可选，纯 JS 模式无需
     ]
 };

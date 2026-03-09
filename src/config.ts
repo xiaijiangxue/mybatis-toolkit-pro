@@ -112,3 +112,46 @@ export function getHighlightColors(): HighlightColors {
         param: cfg.get<string>('highlights.paramColor', '#9CDCFE')
     };
 }
+
+// ---------- MyBatis-Plus 代码生成（自动填充、逻辑删除，配置持久化后下次生成回显） ----------
+
+export interface MybatisPlusFillField {
+    column: string;
+    fill: 'INSERT' | 'INSERT_UPDATE';
+}
+
+export type MybatisPlusIdType = 'AUTO' | 'ASSIGN_ID' | 'ASSIGN_UUID' | 'INPUT' | 'NONE';
+
+export function getMybatisPlusCodeGenConfig(): {
+    fillFields: MybatisPlusFillField[];
+    logicDeleteField: string;
+    idType: MybatisPlusIdType;
+} {
+    const cfg = getConfig();
+    const fillFields = cfg.get<MybatisPlusFillField[]>('codeGen.mybatisPlus.fillFields', []);
+    const logicDeleteField = cfg.get<string>('codeGen.mybatisPlus.logicDeleteField', '');
+    const idType = cfg.get<MybatisPlusIdType>('codeGen.mybatisPlus.idType', 'AUTO');
+    const validIdTypes: MybatisPlusIdType[] = ['AUTO', 'ASSIGN_ID', 'ASSIGN_UUID', 'INPUT', 'NONE'];
+    return {
+        fillFields: Array.isArray(fillFields) ? fillFields : [],
+        logicDeleteField: logicDeleteField || '',
+        idType: validIdTypes.includes(idType) ? idType : 'AUTO'
+    };
+}
+
+// ---------- 代码生成目录名（Entity / Mapper / XML / Service） ----------
+
+function sanitizeDirName(name: string, defaultVal: string): string {
+    const s = (name || '').trim().replace(/[^a-zA-Z0-9_]/g, '');
+    return s || defaultVal;
+}
+
+export function getCodeGenDirNames(): { entityDirName: string; mapperDirName: string; xmlDirName: string; serviceDirName: string } {
+    const cfg = getConfig();
+    return {
+        entityDirName: sanitizeDirName(cfg.get<string>('codeGen.entityDirName', 'entity'), 'entity'),
+        mapperDirName: sanitizeDirName(cfg.get<string>('codeGen.mapperDirName', 'mapper'), 'mapper'),
+        xmlDirName: sanitizeDirName(cfg.get<string>('codeGen.xmlDirName', 'mapper'), 'mapper'),
+        serviceDirName: sanitizeDirName(cfg.get<string>('codeGen.serviceDirName', 'service'), 'service')
+    };
+}

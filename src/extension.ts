@@ -406,7 +406,6 @@ export function activate(context: vscode.ExtensionContext) {
             if (!item || !item.tableName) {
                 return;
             }
-            // 提示输入包名
             const basePackage = await vscode.window.showInputBox({
                 prompt: '输入基础包名 (例如 com.example.demo)',
                 placeHolder: 'com.example.demo',
@@ -414,20 +413,75 @@ export function activate(context: vscode.ExtensionContext) {
             });
             if (!basePackage) return;
 
-            // 提示移除表前缀 (可选)
-            // 目前保持简单或自动推断。
-            // 服务处理生成逻辑。
+            const stylePick = await vscode.window.showQuickPick(
+                [
+                    { label: '$(library) MyBatis-Plus (默认)', description: 'Entity 注解 + BaseMapper，XML 仅 resultMap', style: 'mybatis-plus' as const },
+                    { label: '$(file-code) MyBatis', description: '传统 Mapper 接口 + 完整 XML CRUD', style: 'mybatis' as const }
+                ],
+                { placeHolder: '选择代码风格', ignoreFocusOut: true }
+            );
+            if (!stylePick) return;
+            const codeGenStyle = stylePick.style;
 
-            if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-                const root = vscode.workspace.workspaceFolders[0].uri.fsPath;
-                await codeGenService.generateCode(item.tableName, basePackage, root);
-            } else {
-                vscode.window.showErrorMessage('未打开工作区');
+            const roots = vscode.workspace.workspaceFolders;
+            const defaultRoot = roots?.[0]?.uri.fsPath ?? '';
+
+            interface FolderChoice extends vscode.QuickPickItem {
+                choiceType: 'workspace' | 'pick' | 'input';
+                root?: string;
             }
+            const choices: FolderChoice[] = [];
+            if (roots && roots.length > 0) {
+                roots.forEach((f, i) => {
+                    choices.push({
+                        label: i === 0 ? `$(folder) ${f.name} (默认)` : `$(folder) ${f.name}`,
+                        description: f.uri.fsPath,
+                        choiceType: 'workspace',
+                        root: f.uri.fsPath
+                    });
+                });
+            }
+            choices.push({ label: '$(folder-opened) 选择其他文件夹...', choiceType: 'pick' });
+            choices.push({ label: '$(edit) 输入路径', description: defaultRoot || '输入项目根目录路径', choiceType: 'input' });
+
+            const chosen = await vscode.window.showQuickPick(choices, {
+                placeHolder: '选择或指定生成代码的基础目录（Entity/Mapper/XML 将生成在其下的 src/main/java、src/main/resources）',
+                ignoreFocusOut: true,
+                matchOnDescription: true
+            });
+            if (!chosen) return;
+
+            let workspaceRoot: string;
+            if (chosen.choiceType === 'workspace' && chosen.root) {
+                workspaceRoot = chosen.root;
+            } else if (chosen.choiceType === 'pick') {
+                const uris = await vscode.window.showOpenDialog({ canSelectFolders: true, canSelectMany: false, defaultUri: roots?.[0]?.uri });
+                if (!uris || uris.length === 0) return;
+                workspaceRoot = uris[0].fsPath;
+            } else if (chosen.choiceType === 'input') {
+                const input = await vscode.window.showInputBox({
+                    prompt: '输入基础路径（项目根目录）',
+                    value: defaultRoot,
+                    placeHolder: defaultRoot || '/path/to/project'
+                });
+                if (input === undefined || input.trim() === '') return;
+                workspaceRoot = input.trim();
+            } else {
+                return;
+            }
+
+            await codeGenService.generateCode(item.tableName, basePackage, workspaceRoot, codeGenStyle);
         }),
-        vscode.commands.registerCommand('mybatisToolkit.generateXmlForMethod', async (document: vscode.TextDocument, methodName: string, xmlFile: string) => {
+        vscode.commands.registerCommand('mybatisToolkit.generateXmlForMethod', async (javaFileUriOrDoc: string | vscode.TextDocument, methodName: string, xmlFile: string) => {
             try {
-                // 1. 获取方法信息
+                if (!methodName || !xmlFile) {
+                    vscode.window.showErrorMessage('生成 XML：参数不完整（方法名或 XML 路径缺失）');
+                    return;
+                }
+                // 兼容旧调用传 document；新调用传 uri 字符串，避免序列化问题
+                const uriString = typeof javaFileUriOrDoc === 'string' ? javaFileUriOrDoc : javaFileUriOrDoc.uri.toString();
+                const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(uriString));
+
                 const text = document.getText();
                 const methods = JavaAstUtils.getMethods(text);
                 const methodInfo = methods.get(methodName);
@@ -437,18 +491,13 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
 
-                // 2. 生成 SQL
-                // 获取类名
                 const className = JavaAstUtils.getSimpleName(text) || '';
                 const fullClassName = `${JavaAstUtils.getPackageName(text)}.${className}`;
 
-                // 构建参数列表
                 const params: { name: string; type: string }[] = [];
                 methodInfo.params.forEach((type, name) => params.push({ name, type }));
 
-                // 返回类型不需要特别精确解析，只要能推断实体即可
-                const returnType = methodInfo.returnType || ''; // JavaAstUtils 此时可能未完全解析 returnType，但 MethodSqlGenerator 主要是用它来推断实体名
-
+                const returnType = methodInfo.returnType || '';
                 const generator = new MethodSqlGenerator(indexer);
                 const sqlXml = generator.generateSql(methodName, returnType, params, fullClassName);
 
@@ -457,24 +506,30 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
 
-                // 3. 插入到 XML
-                let xmlContent = fs.readFileSync(vscode.Uri.parse(xmlFile).fsPath, 'utf-8');
+                const xmlPath = vscode.Uri.parse(xmlFile).fsPath;
+                let xmlContent = fs.readFileSync(xmlPath, 'utf-8');
+                if (xmlContent.includes(`id="${methodName}"`)) {
+                    vscode.window.showInformationMessage(`XML 中已存在 id="${methodName}"，未重复插入`);
+                    const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(xmlPath));
+                    await vscode.window.showTextDocument(doc);
+                    return;
+                }
+
                 const closeTagIndex = xmlContent.lastIndexOf('</mapper>');
                 if (closeTagIndex === -1) {
                     vscode.window.showErrorMessage('XML 文件格式不正确 (未找到 </mapper>)');
                     return;
                 }
 
-                // 插入
                 const newContent = xmlContent.slice(0, closeTagIndex) + '\n  ' + sqlXml + '\n' + xmlContent.slice(closeTagIndex);
-                fs.writeFileSync(vscode.Uri.parse(xmlFile).fsPath, newContent, 'utf-8');
+                fs.writeFileSync(xmlPath, newContent, 'utf-8');
 
-                // 4. 打开并显示
-                const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(xmlFile));
+                const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(xmlPath));
                 await vscode.window.showTextDocument(doc);
-
+                vscode.window.showInformationMessage(`已为方法 ${methodName} 生成 XML`);
             } catch (e) {
-                vscode.window.showErrorMessage(`生成失败: ${e}`);
+                const msg = e instanceof Error ? e.message : String(e);
+                vscode.window.showErrorMessage(`生成 XML 失败: ${msg}`);
             }
         })
     );

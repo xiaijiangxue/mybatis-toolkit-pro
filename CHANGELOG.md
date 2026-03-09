@@ -6,6 +6,31 @@
 
 ---
 
+## [1.1.1] - 2026-03-08
+
+### 新增
+
+- **代码生成：MyBatis-Plus / MyBatis 风格可选**
+  - 生成前可选择 **MyBatis-Plus（默认）** 或 **MyBatis** 代码风格。
+  - MyBatis-Plus：Entity 使用 `@TableName`、`@TableId`、`@TableField` 等注解，Mapper 继承 `BaseMapper`，XML 仅保留 resultMap 与 Base_Column_List。
+  - MyBatis：传统 Mapper 接口 + 完整 XML CRUD。
+- **MyBatis-Plus 可配置项（均在设置 UI 中可配置，持久化后下次生成回显）**
+  - **自动填充字段**（`codeGen.mybatisPlus.fillFields`）：可配置多列及填充策略（INSERT / INSERT_UPDATE），生成 `@TableField(value = "列名", fill = FieldFill.xxx)`；设置中支持添加项、列名与下拉选择。
+  - **逻辑删除字段**（`codeGen.mybatisPlus.logicDeleteField`）：指定列名（如 `del_flag`），生成 `@TableLogic`，若该列在填充列表中则同时带 `fill`。
+  - **主键生成策略**（`codeGen.mybatisPlus.idType`）：可选 AUTO、ASSIGN_ID、ASSIGN_UUID、INPUT、NONE，生成 `@TableId(type = IdType.xxx)`。
+- **代码生成：目录名可自定义**
+  - **Entity 目录名**（`codeGen.entityDirName`）：默认 `entity`，可改为 `po`、`domain` 等。
+  - **Mapper/DAO 目录名**（`codeGen.mapperDirName`）：默认 `mapper`，可改为 `dao` 等。
+  - **Mapper XML 目录名**（`codeGen.xmlDirName`）：默认 `mapper`（位于 `src/main/resources` 下），可改为 `mappers`、`xml` 等。
+  - **Service 目录名**（`codeGen.serviceDirName`）：默认 `service`，预留供后续生成 Service 层使用。
+
+### 变更
+
+- **设置 UI**：所有配置项均可在「设置」中搜索 MyBatis / mybatisToolkit 进行配置；配置总说明与各选项的 `markdownDescription` 已补充，便于在 UI 中查看。
+- **fillFields**：数组项 schema 完善（required、enumDescriptions、默认说明），便于在设置界面中添加/编辑自动填充字段。
+
+---
+
 ## [1.1.0] - 2026-03-07
 
 ### 新增
@@ -27,6 +52,15 @@
   - **Ctrl+Shift+.**（Mac：Cmd+Shift+.）：执行全部 SQL。
   - 可在 VS Code「键盘快捷方式」中搜索「执行选中 SQL」「执行全部 SQL」修改绑定。
 - **激活**：增加 `onLanguage:sql`，在打开 SQL 文件时激活扩展，确保上述命令与快捷键可用。
+- **生成代码（从表）**
+  - 生成前**选择基础目录**：可从工作区根目录列表选择、或「选择其他文件夹」、或「输入路径」；默认当前项目根目录。Entity/Mapper/XML 生成在该目录下的 `src/main/java`、`src/main/resources`。
+  - **主键自动识别**：根据列 `Key='PRI'` 识别主键列，生成的 Mapper 接口与 XML 中 update/delete/selectById 使用实际主键列名（如 `user_id`），不再写死 `id`。
+  - 生成过程**异常捕获**与明确成功/失败提示。
+- **为方法生成 XML（Quick Fix）**
+  - 命令 `mybatisToolkit.generateXmlForMethod` 已在 `package.json` 中声明，避免「command not found」。
+  - 传 Java 文件 **URI 字符串**而非 document，避免命令序列化后执行失败。
+  - 插入前**二次检查**是否已存在同 id，避免重复插入；读 XML 失败时 Quick Fix 不展示。
+- **方法名生成 SQL**：实体名转表名时去掉前导下划线（如 `User` → `user`，不再生成 `_user`）。
 
 ### 变更
 
@@ -37,6 +71,7 @@
 
 - 修复查询结果中时间列仍显示为 `Date.toString()` 原始格式的问题，改为使用配置的日期时间格式。
 - 修复在纯 SQL 文件中快捷键不生效的问题（通过 SQL 激活事件与快捷键绑定）。
+- 修复「为 xxx 生成 XML」报错 `command 'mybatisToolkit.generateXmlForMethod' not found`（命令声明 + 传参方式）。
 
 ---
 

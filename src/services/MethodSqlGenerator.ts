@@ -20,9 +20,8 @@ export class MethodSqlGenerator {
         const fromReturnType = JavaAstUtils.getFirstGenericTypeName(returnType);
         const possibleEntity = fromReturnType || interfaceSimpleName.replace('Mapper', '');
 
-        // 尝试验证此实体是否存在于索引中
-        // 简单启发式：PascalCase 转下划线 (User -> user)
-        const tableName = this.camelToSnake(possibleEntity);
+        // PascalCase 转表名：User -> user（去掉 camelToSnake 首字符产生的前导下划线）
+        const tableName = this.camelToSnake(possibleEntity).replace(/^_/, '');
 
         // 3. 构建 SQL
         let sql = '';

@@ -3,78 +3,114 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DatabaseService } from './DatabaseService';
 import { ColumnInfo } from '../types';
+import { getMybatisPlusCodeGenConfig, getCodeGenDirNames } from '../config';
+
+export type CodeGenStyle = 'mybatis-plus' | 'mybatis';
 
 export class CodeGenerationService {
     constructor(private dbService: DatabaseService) { }
 
-    public async generateCode(table: string, basePackage: string, workspaceRoot: string) {
-        const columns = await this.dbService.getTableSchema(table);
-        if (!columns || columns.length === 0) {
-            vscode.window.showErrorMessage(`未找到表的列信息: ${table}`);
-            return;
+    public async generateCode(table: string, basePackage: string, workspaceRoot: string, style: CodeGenStyle = 'mybatis-plus') {
+        try {
+            const columns = await this.dbService.getTableSchema(table);
+            if (!columns || columns.length === 0) {
+                vscode.window.showErrorMessage(`未找到表的列信息: ${table}`);
+                return;
+            }
+
+            const className = this.toPascalCase(table);
+            const dirNames = getCodeGenDirNames();
+            const entityPackage = `${basePackage}.${dirNames.entityDirName}`;
+            const mapperPackage = `${basePackage}.${dirNames.mapperDirName}`;
+
+            // 主键列：优先 PRI，否则首列，否则 'id'
+            const idColumn = columns.find(c => c.Key === 'PRI')?.Field ?? columns[0]?.Field ?? 'id';
+            const idProperty = this.toCamelCase(idColumn);
+
+            const entityContent = this.generateEntity(table, className, entityPackage, columns, idColumn, idProperty, style);
+            const mapperInterfaceContent = this.generateMapperInterface(className, entityPackage, mapperPackage, idColumn, idProperty, style);
+            const mapperXmlContent = this.generateMapperXml(table, className, entityPackage, mapperPackage, columns, idColumn, idProperty, style);
+
+            const srcMainJava = path.join(workspaceRoot, 'src', 'main', 'java');
+            const srcMainResources = path.join(workspaceRoot, 'src', 'main', 'resources');
+
+            const entityDir = path.join(srcMainJava, ...entityPackage.split('.'));
+            const mapperDir = path.join(srcMainJava, ...mapperPackage.split('.'));
+            const xmlDir = path.join(srcMainResources, dirNames.xmlDirName);
+
+            await fs.promises.mkdir(entityDir, { recursive: true });
+            await fs.promises.mkdir(mapperDir, { recursive: true });
+            await fs.promises.mkdir(xmlDir, { recursive: true });
+
+            const entityPath = path.join(entityDir, `${className}.java`);
+            const mapperPath = path.join(mapperDir, `${className}Mapper.java`);
+            const xmlPath = path.join(xmlDir, `${className}Mapper.xml`);
+
+            await fs.promises.writeFile(entityPath, entityContent, 'utf8');
+            await fs.promises.writeFile(mapperPath, mapperInterfaceContent, 'utf8');
+            await fs.promises.writeFile(xmlPath, mapperXmlContent, 'utf8');
+
+            const doc = await vscode.workspace.openTextDocument(entityPath);
+            await vscode.window.showTextDocument(doc);
+            vscode.window.showInformationMessage(`已为表 '${table}' 生成 Entity、Mapper 与 XML`);
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            vscode.window.showErrorMessage(`生成代码失败: ${msg}`);
         }
-
-        const className = this.toPascalCase(table);
-        const entityPackage = `${basePackage}.entity`;
-        const mapperPackage = `${basePackage}.mapper`;
-
-        // 生成内容
-        const entityContent = this.generateEntity(table, className, entityPackage, columns);
-        const mapperInterfaceContent = this.generateMapperInterface(className, entityPackage, mapperPackage);
-        const mapperXmlContent = this.generateMapperXml(table, className, entityPackage, mapperPackage, columns);
-
-        // 定义路径
-        const srcMainJava = path.join(workspaceRoot, 'src', 'main', 'java');
-        const srcMainResources = path.join(workspaceRoot, 'src', 'main', 'resources');
-
-        const entityDir = path.join(srcMainJava, ...entityPackage.split('.'));
-        const mapperDir = path.join(srcMainJava, ...mapperPackage.split('.'));
-        // 标准 MyBatis Mapper XML 位置: resources/mapper
-        const xmlDir = path.join(srcMainResources, 'mapper');
-
-        // 创建目录
-        await fs.promises.mkdir(entityDir, { recursive: true });
-        await fs.promises.mkdir(mapperDir, { recursive: true });
-        await fs.promises.mkdir(xmlDir, { recursive: true });
-
-        // 写入文件
-        const entityPath = path.join(entityDir, `${className}.java`);
-        const mapperPath = path.join(mapperDir, `${className}Mapper.java`);
-        const xmlPath = path.join(xmlDir, `${className}Mapper.xml`);
-
-        await fs.promises.writeFile(entityPath, entityContent, 'utf8');
-        await fs.promises.writeFile(mapperPath, mapperInterfaceContent, 'utf8');
-        await fs.promises.writeFile(xmlPath, mapperXmlContent, 'utf8');
-
-        // 打开实体类文件
-        const doc = await vscode.workspace.openTextDocument(entityPath);
-        await vscode.window.showTextDocument(doc);
-
-        vscode.window.showInformationMessage(`已为表 '${table}' 生成代码`);
     }
 
-    private generateEntity(table: string, className: string, packageName: string, columns: ColumnInfo[]): string {
+    private generateEntity(table: string, className: string, packageName: string, columns: ColumnInfo[], idColumn: string, idProperty: string, style: CodeGenStyle): string {
+        const hasDate = columns.some(c => this.convertType(c.Type).includes('Date') || this.convertType(c.Type).includes('Time'));
+        const imports = ['import lombok.Data;', 'import java.io.Serializable;'];
+        if (hasDate) {
+            imports.push('import java.time.*;');
+        }
+        if (columns.some(c => c.Type.toLowerCase().includes('decimal'))) {
+            imports.push('import java.math.BigDecimal;');
+        }
+
+        if (style === 'mybatis-plus') {
+            imports.push('import com.baomidou.mybatisplus.annotation.TableName;');
+            imports.push('import com.baomidou.mybatisplus.annotation.TableId;');
+            imports.push('import com.baomidou.mybatisplus.annotation.TableField;');
+            imports.push('import com.baomidou.mybatisplus.annotation.IdType;');
+            imports.push('import com.baomidou.mybatisplus.annotation.TableLogic;');
+            imports.push('import com.baomidou.mybatisplus.annotation.FieldFill;');
+        }
+
+        const mpConfig = style === 'mybatis-plus' ? getMybatisPlusCodeGenConfig() : null;
+        const fillMap = mpConfig ? new Map(mpConfig.fillFields.map(f => [f.column, f.fill])) : null;
+        const logicDeleteCol = mpConfig?.logicDeleteField ?? '';
+        const idType = mpConfig?.idType ?? 'AUTO';
+
         const fields = columns.map(col => {
             const javaType = this.convertType(col.Type);
             const fieldName = this.toCamelCase(col.Field);
             const comment = col.Comment ? `    /**\n     * ${col.Comment}\n     */\n` : '';
-            return `${comment}    private ${javaType} ${fieldName};`;
+            const isId = col.Key === 'PRI';
+            let annotations = '';
+            if (style === 'mybatis-plus') {
+                if (isId) {
+                    annotations = `    @TableId(value = "${col.Field}", type = IdType.${idType})\n`;
+                } else {
+                    const isLogicDelete = logicDeleteCol && col.Field === logicDeleteCol;
+                    const fill = fillMap?.get(col.Field);
+                    if (isLogicDelete) {
+                        annotations = `    @TableLogic\n`;
+                        if (fill) {
+                            annotations += `    @TableField(value = "${col.Field}", fill = FieldFill.${fill})\n`;
+                        } else if (col.Field !== fieldName) {
+                            annotations += `    @TableField("${col.Field}")\n`;
+                        }
+                    } else if (fill) {
+                        annotations = `    @TableField(value = "${col.Field}", fill = FieldFill.${fill})\n`;
+                    } else if (col.Field !== fieldName) {
+                        annotations = `    @TableField("${col.Field}")\n`;
+                    }
+                }
+            }
+            return `${comment}${annotations}    private ${javaType} ${fieldName};`;
         }).join('\n\n');
-
-        const hasDate = columns.some(c => this.convertType(c.Type).includes('Date') || this.convertType(c.Type).includes('Time'));
-        const imports = [
-            'import lombok.Data;',
-            'import java.io.Serializable;'
-        ];
-        if (hasDate) {
-            imports.push('import java.time.*;');
-            imports.push('import java.util.Date;');
-        }
-
-        // 如果需要，简单导入 BigDecimal
-        if (columns.some(c => c.Type.toLowerCase().includes('decimal'))) {
-            imports.push('import java.math.BigDecimal;');
-        }
 
         return `package ${packageName};
 
@@ -83,7 +119,7 @@ ${imports.join('\n')}
 /**
  * Table: ${table}
  */
-@Data
+@Data${style === 'mybatis-plus' ? `\n@TableName("${table}")` : ''}
 public class ${className} implements Serializable {
     private static final long serialVersionUID = 1L;
 
@@ -92,7 +128,22 @@ ${fields}
 `;
     }
 
-    private generateMapperInterface(className: string, entityPackage: string, mapperPackage: string): string {
+    private generateMapperInterface(className: string, entityPackage: string, mapperPackage: string, idColumn: string, idProperty: string, style: CodeGenStyle): string {
+        if (style === 'mybatis-plus') {
+            return `package ${mapperPackage};
+
+import ${entityPackage}.${className};
+import org.apache.ibatis.annotations.Mapper;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+
+@Mapper
+public interface ${className}Mapper extends BaseMapper<${className}> {
+
+}
+`;
+        }
+        const idType = 'Long';
+        const paramName = idProperty || 'id';
         return `package ${mapperPackage};
 
 import ${entityPackage}.${className};
@@ -111,52 +162,64 @@ public interface ${className}Mapper {
 
     int updateByIdSelective(${className} record);
 
-    int deleteById(@Param("id") Long id);
+    int deleteById(@Param("${paramName}") ${idType} ${paramName});
 
-    ${className} selectById(@Param("id") Long id);
+    ${className} selectById(@Param("${paramName}") ${idType} ${paramName});
 
     List<${className}> selectAll();
 }
 `;
     }
 
-    private generateMapperXml(table: string, className: string, entityPackage: string, mapperPackage: string, columns: ColumnInfo[]): string {
+    private generateMapperXml(table: string, className: string, entityPackage: string, mapperPackage: string, columns: ColumnInfo[], idColumn: string, idProperty: string, style: CodeGenStyle): string {
         const fullEntityName = `${entityPackage}.${className}`;
         const namespace = `${mapperPackage}.${className}Mapper`;
 
-        // 结果映射
         const resultResults = columns.map(col => {
             const property = this.toCamelCase(col.Field);
-            // 假设第一个字段是 ID 或查找 'id'/'PRIMARY' 键？
-            // 简化：如果 Key='PRI'，将 'id' 或第一个列视为 ID
             const isId = col.Key === 'PRI';
             const tag = isId ? 'id' : 'result';
             return `        <${tag} column="${col.Field}" property="${property}" />`;
         }).join('\n');
 
-        // 基础列列表
         const columnList = columns.map(c => `        ${c.Field}`).join(',\n');
+
+        if (style === 'mybatis-plus') {
+            return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="${namespace}">
+
+    <resultMap id="BaseResultMap" type="${fullEntityName}">
+${resultResults}
+    </resultMap>
+
+    <sql id="Base_Column_List">
+${columnList}
+    </sql>
+
+    <!-- 自定义 SQL 可在此添加，CRUD 由 BaseMapper 提供 -->
+</mapper>
+`;
+        }
+
         const insertCols = columns.map(c => c.Field).join(', ');
         const insertVals = columns.map(c => `#{${this.toCamelCase(c.Field)}}`).join(', ');
         const updateSets = columns
-            .filter(c => c.Field !== 'id')
+            .filter(c => c.Field !== idColumn)
             .map(c => `        ${c.Field} = #{${this.toCamelCase(c.Field)}}`)
             .join(',\n');
 
-        // 动态插入列
         const insertSelectiveCols = columns.map(c => {
             const prop = this.toCamelCase(c.Field);
             return `            <if test="${prop} != null">${c.Field},</if>`;
         }).join('\n');
-        // 动态插入值
         const insertSelectiveVals = columns.map(c => {
             const prop = this.toCamelCase(c.Field);
             return `            <if test="${prop} != null">#{${prop}},</if>`;
         }).join('\n');
 
-        // 动态更新列
         const updateSetsSelective = columns
-            .filter(c => c.Field !== 'id')
+            .filter(c => c.Field !== idColumn)
             .map(c => {
                 const prop = this.toCamelCase(c.Field);
                 return `            <if test="${prop} != null">${c.Field} = #{${prop}},</if>`;
@@ -192,9 +255,9 @@ ${insertSelectiveVals}
 
     <update id="updateById" parameterType="${fullEntityName}">
         update ${table}
-        set 
+        set
 ${updateSets}
-        where id = #{id}
+        where ${idColumn} = #{${idProperty}}
     </update>
 
     <update id="updateByIdSelective" parameterType="${fullEntityName}">
@@ -202,23 +265,23 @@ ${updateSets}
         <set>
 ${updateSetsSelective}
         </set>
-        where id = #{id}
+        where ${idColumn} = #{${idProperty}}
     </update>
 
     <delete id="deleteById">
         delete from ${table}
-        where id = #{id}
+        where ${idColumn} = #{${idProperty}}
     </delete>
 
     <select id="selectById" resultMap="BaseResultMap">
-        select 
+        select
         <include refid="Base_Column_List" />
         from ${table}
-        where id = #{id}
+        where ${idColumn} = #{${idProperty}}
     </select>
 
     <select id="selectAll" resultMap="BaseResultMap">
-        select 
+        select
         <include refid="Base_Column_List" />
         from ${table}
     </select>

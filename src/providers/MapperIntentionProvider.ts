@@ -30,18 +30,22 @@ export class MapperIntentionProvider implements vscode.CodeActionProvider {
         if (!mapperClass) return;
 
         const xmlFile = this.indexer.getMapperPath(mapperClass);
-        if (!xmlFile) return; // 未找到 XML，也许提供创建一个？
+        if (!xmlFile) return;
 
-        // 2. 检查 XML 中的 id="methodName"
-        const xmlContent = fs.readFileSync(vscode.Uri.parse(xmlFile).fsPath, 'utf-8');
-        if (xmlContent.includes(`id="${methodNameStr}"`)) return; // 已存在
+        // 2. 检查 XML 中是否已有该 id，避免重复生成
+        try {
+            const xmlContent = fs.readFileSync(vscode.Uri.parse(xmlFile).fsPath, 'utf-8');
+            if (xmlContent.includes(`id="${methodNameStr}"`)) return;
+        } catch {
+            return; // 文件不存在或不可读时不提供 Quick Fix
+        }
 
-        // 3. 创建操作
+        // 3. 传 URI 字符串而非 document，避免命令序列化时 document 不可用
         const action = new vscode.CodeAction(`为 '${methodNameStr}' 生成 XML`, vscode.CodeActionKind.QuickFix);
         action.command = {
             command: 'mybatisToolkit.generateXmlForMethod',
             title: '生成 XML',
-            arguments: [document, methodNameStr, xmlFile]
+            arguments: [document.uri.toString(), methodNameStr, xmlFile]
         };
 
         return [action];
