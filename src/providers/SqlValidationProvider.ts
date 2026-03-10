@@ -135,6 +135,41 @@ export class SqlValidationProvider implements vscode.Disposable {
                 if (!SQL_KEYWORDS.includes(alias.toUpperCase())) aliases.add(alias);
             }
 
+            // 2a. 识别“无 AS”的列别名（SELECT expr alias FROM ...）
+            // 例如: "t.col alias"、"ROW_NUMBER() OVER(...) rn"
+            // 说明：这里只用于“避免把别名当列去校验”，不做严格 SQL AST 解析。
+            const selectFromRegex = /\bSELECT\s+([\s\S]+?)\s+FROM\b/gi;
+            while ((match = selectFromRegex.exec(sqlOnly))) {
+                const columnsPart = match[1];
+                const cols = this.splitColumns(columnsPart);
+                for (const col of cols) {
+                    const raw = col.trim();
+                    if (!raw) continue;
+                    const upperRaw = raw.toUpperCase();
+                    if (upperRaw === 'DISTINCT') continue;
+
+                    // 显式 AS 已在上面处理，这里只处理隐式 alias：最后一个括号外空格后的标识符
+                    if (upperRaw.includes(' AS ')) continue;
+
+                    const lastSpace = this.lastIndexOfNotInParens(raw, ' ');
+                    if (lastSpace <= 0) continue;
+
+                    const maybeAlias = raw.substring(lastSpace + 1).trim().replace(/^['"`]|['"`]$/g, '');
+                    const exprPart = raw.substring(0, lastSpace).trim();
+                    if (!maybeAlias) continue;
+
+                    // 仅接受标识符形式的别名
+                    if (!/^[a-zA-Z_]\w*$/.test(maybeAlias)) continue;
+                    if (SQL_KEYWORDS.includes(maybeAlias.toUpperCase()) || SQL_FUNCTIONS.includes(maybeAlias.toUpperCase())) continue;
+
+                    // exprPart 必须看起来像“表达式/列”，避免把 "a b" 误判为 alias（极少数场景）
+                    // 经验：包含点号、括号、运算符，或以引号/反引号包裹的列名
+                    if (/[().+\-*/]/.test(exprPart) || exprPart.includes('.') || /[`"']/.test(exprPart)) {
+                        aliases.add(maybeAlias);
+                    }
+                }
+            }
+
             // 2b. 识别子查询别名 (例如 JOIN (SELECT ...) t2 ON ...)
             // 启发式：闭合括号后跟非关键字标识符
             const subqueryAliasRegex = /\)\s+(?:AS\s+)?([a-zA-Z_]\w*)/gi;

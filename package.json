@@ -2,7 +2,7 @@
   "name": "mybatis-toolkit-pro",
   "displayName": "MyBatis Toolkit Pro",
   "description": "专业的 MyBatis 开发工具包",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "publisher": "xiyeming",
   "license": "MIT",
   "keywords": [
@@ -454,7 +454,7 @@
         },
         "mybatisToolkit.formatting.indentSize": {
           "type": "number",
-          "default": 2,
+          "default": 4,
           "description": "SQL 格式化缩进空格数",
           "markdownDescription": "格式化 XML 内 SQL 时每级缩进的空格数。",
           "minimum": 1,

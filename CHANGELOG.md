@@ -6,6 +6,16 @@
 
 ---
 
+## [1.1.2] - 2026-03-09
+
+### 变更
+
+- **SQL 校验**：补充窗口函数与分析函数相关关键字/函数名（如 `ROW_NUMBER`、`RANK`、`PARTITION`、`OVER` 等），避免被误当作列名校验并报“未在表中找到”。
+- **列别名（无 AS）识别**：在 `SELECT expr alias`、`ROW_NUMBER() OVER(...) rn` 等场景下自动识别 `alias` 为列别名并加入别名集合，避免被当作真实列校验。
+- **SQL 格式化缩进**：当未显式设置 `mybatisToolkit.formatting.indentSize` 时，缩进宽度自动跟随 VS Code 的 `editor.tabSize`（例如设置为 4 空格时，格式化后的 SQL 也使用 4 个空格）。
+
+---
+
 ## [1.1.1] - 2026-03-08
 
 ### 新增
