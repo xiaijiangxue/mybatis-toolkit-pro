@@ -169,7 +169,10 @@ export class JavaAstUtils {
         let capturingJavaDoc = false;
         let currentParamDocs = new Map<string, string>();
 
-        const methodPattern = /^\s*(?:public\s+|abstract\s+)?(?:[\w<>,\[\]]+\s+)+(\w+)\s*\((.*)\)/;
+        // 单行完整方法签名：返回值 方法名(参数列表)
+        const methodPattern = /^\s*(?:public\s+|abstract\s+)?(?:[\w<>,\[\]]+\s+)+(\w+)\s*\((.*)\)\s*;?\s*$/;
+        // 多行方法签名起始：返回值 方法名( 且本行未以 ); 结束
+        const methodStartPattern = /^\s*(?:public\s+|abstract\s+)?(?:[\w<>,\[\]]+\s+)+(\w+)\s*\(/;
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
@@ -211,7 +214,7 @@ export class JavaAstUtils {
             if (line.startsWith('//') || line.startsWith('*')) continue;
             if (line.startsWith('@')) continue;
 
-            // 2. Method Match（含返回值类型提取，支持泛型如 List<User>）
+            // 2. Method Match（单行完整签名）
             const match = lines[i].match(methodPattern);
             if (match) {
                 const methodName = match[1];
@@ -228,13 +231,62 @@ export class JavaAstUtils {
                 methods.set(methodName, methodInfo);
                 javaDocBuffer = [];
                 currentParamDocs = new Map();
-            } else if (!line.startsWith('@')) {
-                // 如果我们遇到不是方法也不是注解的代码，清除缓冲区
+                continue;
+            }
+
+            // 3. 多行方法签名：本行以 方法名( 结尾且未出现 );，继续收集直到 );
+            const startMatch = lines[i].match(methodStartPattern);
+            if (startMatch && !/\)\s*;?\s*$/.test(line)) {
+                const methodName = startMatch[1];
+                const collected: string[] = [lines[i]];
+                let j = i + 1;
+                for (; j < lines.length; j++) {
+                    collected.push(lines[j]);
+                    if (/\)\s*;?\s*$/.test(lines[j].trim())) break;
+                }
+                const fullSignature = collected.join(' ');
+                const paramsStr = this.extractParamsFromSignature(fullSignature);
+                if (paramsStr !== null) {
+                    const returnType = this.extractReturnType(lines[i], methodName);
+                    const methodInfo: MethodInfo = {
+                        line: i,
+                        params: this.parseParams(paramsStr),
+                        paramDocs: currentParamDocs,
+                        javaDoc: javaDocBuffer.length > 0 ? javaDocBuffer.join('\n') : undefined,
+                        returnType: returnType ?? undefined
+                    };
+                    methods.set(methodName, methodInfo);
+                    javaDocBuffer = [];
+                    currentParamDocs = new Map();
+                }
+                i = j;
+                continue;
+            }
+
+            if (!line.startsWith('@')) {
                 javaDocBuffer = [];
                 currentParamDocs = new Map();
             }
         }
         return methods;
+    }
+
+    /**
+     * 从完整方法签名字符串中提取括号内的参数部分（支持嵌套括号，如泛型）。
+     */
+    private static extractParamsFromSignature(fullSignature: string): string | null {
+        const open = fullSignature.indexOf('(');
+        if (open < 0) return null;
+        let depth = 0;
+        for (let k = open; k < fullSignature.length; k++) {
+            const c = fullSignature[k];
+            if (c === '(') depth++;
+            else if (c === ')') {
+                depth--;
+                if (depth === 0) return fullSignature.slice(open + 1, k).trim();
+            }
+        }
+        return null;
     }
 
     /**
