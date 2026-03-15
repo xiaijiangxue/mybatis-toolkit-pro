@@ -52,23 +52,64 @@ export class ProjectIndexer {
 
         const excludes = getNavigationExclude();
         const excludePattern = `**/{${excludes.join(',')}}/**`;
-        // 提高上限，确保多模块、mapper 子目录（如 mapper/order/OrderMapper.xml）均被扫描
+        // 提高上限，确保多模块、dao/mapper 子目录（如 dao/order/OrderMapper.java、mapper/order/OrderMapper.xml）均被扫描
         const maxResults = 100000;
 
-        const javaFiles = await vscode.workspace.findFiles('**/*.java', excludePattern, maxResults);
-        await this.parseFilesInBatches(javaFiles, file => this.parseJavaFile(file));
+        // 按工作区文件夹递归扫描，确保每个根目录下的子目录（dao/xxx、mapper/xxx）都被索引
+        const javaFiles = await this.collectFilesRecursively('**/*.java', excludePattern, maxResults);
+        const xmlFiles = await this.collectFilesRecursively('**/*.xml', excludePattern, maxResults);
 
-        const xmlFiles = await vscode.workspace.findFiles('**/*.xml', excludePattern, maxResults);
+        await this.parseFilesInBatches(javaFiles, file => this.parseJavaFile(file));
         await this.parseFilesInBatches(xmlFiles, file => this.parseXmlFile(file));
 
         this.outputChannel.appendLine(`[索引器] 扫描完成，耗时 ${Date.now() - start}ms。Mappers: ${this.javaMap.size}, DTOs: ${this.dtoMap.size}, XML: ${this.xmlMap.size}`);
         this._onDidUpdateIndex.fire();
 
-        // 监听所有层级的 java/xml，包括 mapper 下子目录
-        const watcher = vscode.workspace.createFileSystemWatcher('**/*.{java,xml}');
-        watcher.onDidChange(async uri => await this.handleFileChange(uri));
-        watcher.onDidCreate(async uri => await this.handleFileChange(uri));
-        watcher.onDidDelete(async uri => this.handleFileDelete(uri));
+        // 为每个工作区根目录注册递归监听，确保 dao/mapper 子目录下的新建/变更/删除都能触发索引更新
+        this.registerFileWatchers();
+    }
+
+    /**
+     * 递归收集文件：多根工作区时对每个 folder 使用 RelativePattern 递归匹配，确保子目录（如 dao/order、mapper/order）被完整扫描。
+     */
+    private async collectFilesRecursively(glob: string, excludePattern: string, maxResults: number): Promise<vscode.Uri[]> {
+        const folders = vscode.workspace.workspaceFolders;
+        if (folders && folders.length > 0) {
+            const allUris: vscode.Uri[] = [];
+            const seen = new Set<string>();
+            for (const folder of folders) {
+                const pattern = new vscode.RelativePattern(folder, glob);
+                const uris = await vscode.workspace.findFiles(pattern, excludePattern, maxResults);
+                for (const uri of uris) {
+                    const key = uri.toString();
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        allUris.push(uri);
+                    }
+                }
+            }
+            return allUris;
+        }
+        return vscode.workspace.findFiles(glob, excludePattern, maxResults);
+    }
+
+    /** 为每个工作区根目录注册递归文件监听（匹配任意深度的 .java 与 .xml），子目录变更也会触发索引更新。 */
+    private registerFileWatchers(): void {
+        const folders = vscode.workspace.workspaceFolders;
+        if (folders && folders.length > 0) {
+            for (const folder of folders) {
+                const pattern = new vscode.RelativePattern(folder, '**/*.{java,xml}');
+                const watcher = vscode.workspace.createFileSystemWatcher(pattern);
+                watcher.onDidChange(uri => this.handleFileChange(uri));
+                watcher.onDidCreate(uri => this.handleFileChange(uri));
+                watcher.onDidDelete(uri => this.handleFileDelete(uri));
+            }
+        } else {
+            const watcher = vscode.workspace.createFileSystemWatcher('**/*.{java,xml}');
+            watcher.onDidChange(uri => this.handleFileChange(uri));
+            watcher.onDidCreate(uri => this.handleFileChange(uri));
+            watcher.onDidDelete(uri => this.handleFileDelete(uri));
+        }
     }
 
     /** 限制并发解析数量，避免大仓库下同时打开大量文档导致卡顿 */
