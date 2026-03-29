@@ -17,6 +17,7 @@ import { CodeGenerationService } from './services/CodeGenerationService';
 import { MethodSqlGenerator } from './services/MethodSqlGenerator';
 import { SqlHighlightingProvider, SQL_SEMANTIC_TOKEN_LEGEND } from './providers/SqlHighlightingProvider';
 import { MyBatisHoverProvider } from './providers/MyBatisHoverProvider';
+import { MyBatisCompletionProvider } from './providers/MyBatisCompletionProvider';
 import { QueryResultsPanel } from './panels/QueryResultsPanel';
 import { QUERY_DEFAULT_MAX_ROWS } from './constants';
 import { QueryResult } from './types';
@@ -88,6 +89,17 @@ export function activate(context: vscode.ExtensionContext) {
         )
     );
 
+    // Completion Provider
+    const completionProvider = new MyBatisCompletionProvider(indexer);
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            { language: 'xml' },
+            completionProvider,
+            '{',
+            '.'
+        )
+    );
+
     // 装饰器 (代码高亮) - REMOVED
     // context.subscriptions.push(decorationProvider);
 
@@ -136,14 +148,99 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 3. 注册命令 (必须与 package.json 匹配)
     context.subscriptions.push(
-        vscode.commands.registerCommand('mybatisToolkit.goToMapper', (uri: vscode.Uri) => {
-            vscode.window.showTextDocument(uri);
+        vscode.commands.registerCommand('mybatisToolkit.goToMapper', async (uri?: vscode.Uri, selection?: vscode.Range) => {
+            if (uri) {
+                vscode.window.showTextDocument(uri, selection ? { selection } : undefined);
+                return;
+            }
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || editor.document.languageId !== 'xml') {
+                vscode.window.showWarningMessage('请在 XML Mapper 文件中使用此命令。');
+                return;
+            }
+            const content = editor.document.getText();
+            const namespaceMatch = content.match(/<mapper\s+namespace="([^"]+)"/);
+            if (!namespaceMatch) {
+                vscode.window.showWarningMessage('未找到 mapper namespace。');
+                return;
+            }
+            const namespace = namespaceMatch[1];
+            const javaInterface = indexer.getJavaByNamespace(namespace);
+            if (!javaInterface) {
+                vscode.window.showWarningMessage(`未找到对应的 Java 接口: ${namespace}`);
+                return;
+            }
+
+            const lines = content.split('\n');
+            const cursorLine = editor.selection.active.line;
+            let targetMethod: string | undefined;
+            let targetLine: number | undefined;
+            const stmtRegex = /<(select|insert|update|delete)\s+id="([^"]+)"/;
+
+            for (let i = 0; i <= cursorLine; i++) {
+                const match = lines[i].match(stmtRegex);
+                if (match) {
+                    targetMethod = match[2];
+                    targetLine = i;
+                }
+            }
+
+            if (targetMethod && javaInterface.methods.has(targetMethod)) {
+                const methodInfo = javaInterface.methods.get(targetMethod)!;
+                vscode.window.showTextDocument(javaInterface.fileUri, {
+                    selection: new vscode.Range(methodInfo.line, 0, methodInfo.line, 0)
+                });
+            } else {
+                vscode.window.showTextDocument(javaInterface.fileUri);
+            }
         })
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('mybatisToolkit.goToXml', (uri: vscode.Uri) => {
-            vscode.window.showTextDocument(uri);
+        vscode.commands.registerCommand('mybatisToolkit.goToXml', async (uri?: vscode.Uri, selection?: vscode.Range) => {
+            if (uri) {
+                vscode.window.showTextDocument(uri, selection ? { selection } : undefined);
+                return;
+            }
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || editor.document.languageId !== 'java') {
+                vscode.window.showWarningMessage('请在 Java Mapper 接口文件中使用此命令。');
+                return;
+            }
+            const content = editor.document.getText();
+            const packageName = JavaAstUtils.getPackageName(content);
+            const interfaceName = JavaAstUtils.getSimpleName(content);
+            if (!packageName || !interfaceName) {
+                vscode.window.showWarningMessage('无法解析 Java 接口信息。');
+                return;
+            }
+            const fullName = `${packageName}.${interfaceName}`;
+            const mapperXml = indexer.getXmlByInterface(fullName);
+            if (!mapperXml) {
+                vscode.window.showWarningMessage(`未找到对应的 XML Mapper: ${fullName}`);
+                return;
+            }
+
+            const methods = JavaAstUtils.getMethods(content);
+            const cursorLine = editor.selection.active.line;
+            let targetMethod: string | undefined;
+            let targetLine: number | undefined;
+
+            for (const [methodName, info] of methods) {
+                if (cursorLine >= info.line && (targetLine === undefined || info.line > targetLine)) {
+                    targetMethod = methodName;
+                    targetLine = info.line;
+                }
+            }
+
+            if (targetMethod && mapperXml.statements.has(targetMethod)) {
+                const stmtInfo = mapperXml.statements.get(targetMethod)!;
+                vscode.window.showTextDocument(mapperXml.fileUri, {
+                    selection: new vscode.Range(stmtInfo.line, 0, stmtInfo.line, 0)
+                });
+            } else {
+                vscode.window.showTextDocument(mapperXml.fileUri);
+            }
         })
     );
 
