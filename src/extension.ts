@@ -18,6 +18,7 @@ import { MethodSqlGenerator } from './services/MethodSqlGenerator';
 import { SqlHighlightingProvider, SQL_SEMANTIC_TOKEN_LEGEND } from './providers/SqlHighlightingProvider';
 import { MyBatisHoverProvider } from './providers/MyBatisHoverProvider';
 import { MyBatisCompletionProvider } from './providers/MyBatisCompletionProvider';
+import { MyBatisTagCompletionProvider } from './providers/MyBatisTagCompletionProvider';
 import { QueryResultsPanel } from './panels/QueryResultsPanel';
 import { QUERY_DEFAULT_MAX_ROWS } from './constants';
 import { QueryResult } from './types';
@@ -97,6 +98,16 @@ export function activate(context: vscode.ExtensionContext) {
             completionProvider,
             '{',
             '.'
+        )
+    );
+
+    // Tag Completion Provider (for dynamic SQL tags)
+    const tagCompletionProvider = new MyBatisTagCompletionProvider();
+    context.subscriptions.push(
+        vscode.languages.registerCompletionItemProvider(
+            { language: 'xml' },
+            tagCompletionProvider,
+            '<'
         )
     );
 

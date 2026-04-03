@@ -210,6 +210,18 @@
         "key": "ctrl+shift+.",
         "mac": "cmd+shift+.",
         "when": "editorLangId == sql"
+      },
+      {
+        "command": "mybatisToolkit.goToXml",
+        "key": "ctrl+alt+d",
+        "mac": "ctrl+alt+d",
+        "when": "editorLangId == java"
+      },
+      {
+        "command": "mybatisToolkit.goToMapper",
+        "key": "ctrl+alt+d",
+        "mac": "ctrl+alt+d",
+        "when": "editorLangId == xml"
       }
     ],
     "configuration": {
@@ -271,19 +283,49 @@
           "items": {
             "type": "object",
             "properties": {
-              "id": { "type": "string", "description": "连接唯一 ID" },
-              "name": { "type": "string", "description": "显示名称" },
+              "id": {
+                "type": "string",
+                "description": "连接唯一 ID"
+              },
+              "name": {
+                "type": "string",
+                "description": "显示名称"
+              },
               "type": {
                 "type": "string",
-                "enum": ["MySQL", "PostgreSQL", "Oracle", "SQL Server", "SQLite", "DB2", "H2", "MariaDB"],
+                "enum": [
+                  "MySQL",
+                  "PostgreSQL",
+                  "Oracle",
+                  "SQL Server",
+                  "SQLite",
+                  "DB2",
+                  "H2",
+                  "MariaDB"
+                ],
                 "default": "MySQL",
                 "description": "数据库类型"
               },
-              "host": { "type": "string", "description": "主机地址" },
-              "port": { "type": "number", "description": "端口" },
-              "user": { "type": "string", "description": "用户名" },
-              "password": { "type": "string", "description": "密码" },
-              "database": { "type": "string", "description": "数据库/Schema 名" }
+              "host": {
+                "type": "string",
+                "description": "主机地址"
+              },
+              "port": {
+                "type": "number",
+                "description": "端口"
+              },
+              "user": {
+                "type": "string",
+                "description": "用户名"
+              },
+              "password": {
+                "type": "string",
+                "description": "密码"
+              },
+              "database": {
+                "type": "string",
+                "description": "数据库/Schema 名"
+              }
             }
           }
         },
@@ -335,10 +377,20 @@
         },
         "mybatisToolkit.navigation.exclude": {
           "type": "array",
-          "default": ["target", "build", "bin", "out", "dist", "node_modules", ".git"],
+          "default": [
+            "target",
+            "build",
+            "bin",
+            "out",
+            "dist",
+            "node_modules",
+            ".git"
+          ],
           "description": "索引排除目录",
           "markdownDescription": "扫描 Java/XML 时跳过的文件夹名（不含路径），用于减少无关代码参与 Mapper 索引与跳转。",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "mybatisToolkit.performance.indexParseConcurrency": {
           "type": "number",
@@ -389,7 +441,10 @@
           "markdownDescription": "选择 **MyBatis-Plus** 风格生成时，为指定列添加 `@TableField(value = \"列名\", fill = FieldFill.INSERT)` 或 `INSERT_UPDATE`。在设置中点击「添加项」可新增一行，每项填写 **column**（数据库列名，如 create_time）和 **fill**（INSERT 仅插入时填充，INSERT_UPDATE 插入与更新时填充）。",
           "items": {
             "type": "object",
-            "required": ["column", "fill"],
+            "required": [
+              "column",
+              "fill"
+            ],
             "properties": {
               "column": {
                 "type": "string",
@@ -399,8 +454,14 @@
               },
               "fill": {
                 "type": "string",
-                "enum": ["INSERT", "INSERT_UPDATE"],
-                "enumDescriptions": ["仅插入时自动填充", "插入与更新时自动填充"],
+                "enum": [
+                  "INSERT",
+                  "INSERT_UPDATE"
+                ],
+                "enumDescriptions": [
+                  "仅插入时自动填充",
+                  "插入与更新时自动填充"
+                ],
                 "description": "填充策略",
                 "default": "INSERT",
                 "markdownDescription": "INSERT：仅插入时填充；INSERT_UPDATE：插入与更新时填充"
@@ -417,7 +478,13 @@
         "mybatisToolkit.codeGen.mybatisPlus.idType": {
           "type": "string",
           "default": "AUTO",
-          "enum": ["AUTO", "ASSIGN_ID", "ASSIGN_UUID", "INPUT", "NONE"],
+          "enum": [
+            "AUTO",
+            "ASSIGN_ID",
+            "ASSIGN_UUID",
+            "INPUT",
+            "NONE"
+          ],
           "enumDescriptions": [
             "数据库自增（如 MySQL AUTO_INCREMENT）",
             "雪花算法分配 Long 或 UUID 字符串（推荐分布式）",
@@ -507,6 +574,7 @@
     "@types/node": "^20.0.0",
     "@types/pg": "^8.18.0",
     "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.7.1",
     "ts-loader": "^9.5.4",
     "typescript": "^5.0.0",
     "vscode": "npm:@types/vscode@^1.90.0",
