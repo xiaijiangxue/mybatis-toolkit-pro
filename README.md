@@ -8,8 +8,8 @@
 
 ## 安装
 
-- **VS Code 扩展市场**：搜索 “MyBatis Toolkit Pro” 安装。
-- **VSIX**：在 [Releases](https://github.com/xiyeming/mybatis-toolkit-pro/releases) 下载 `.vsix`，通过 “从 VSIX 安装…” 安装。
+- **VS Code 扩展市场**：搜索 "MyBatis Toolkit Pro" 安装。
+- **VSIX**：在 [Releases](https://github.com/xiyeming/mybatis-toolkit-pro/releases) 下载 `.vsix`，通过 "从 VSIX 安装…" 安装。
 
 **要求**：VS Code 1.100.0 及以上。
 
@@ -20,6 +20,8 @@
 | 模块           | 说明 |
 |----------------|------|
 | 智能导航       | Mapper ↔ XML 跳转、表名/ResultMap 属性/Java 类跳转、参数悬停与类型提示 |
+| 智能补全       | 参数属性补全、动态 SQL 标签补全 |
+| 属性重命名同步 | 重命名实体属性时同步更新 XML 引用和 Java getter/setter |
 | SQL 高亮与格式化 | 8 种数据库方言、关键字/函数/参数高亮、可配置引号与缩进 |
 | 数据库管理     | 多连接、数据库浏览器、表结构查看、执行 SQL 与结果展示 |
 | 查询与结果     | 新建查询、执行选中/全部 SQL、分页、行号、可配置日期格式、多结果窗口 |
@@ -31,16 +33,106 @@
 
 ## 一、智能导航
 
-- **跳转到定义**
-  - **数据库表**：在 XML 中点击表名 → 跳转到虚拟架构视图。
-  - **ResultMap 属性**：在 `<resultMap>` 的 `property` 上 **Ctrl+Click (Cmd+Click)** → 跳转到 Java 字段。
-  - **Java 类**：`resultType` / `parameterType` 指定类 → 跳转到对应 Java 类。
-- **Mapper ↔ XML**：在 Mapper 接口与对应 XML 之间互相跳转（命令或 CodeLens）。
-- **悬停**：悬停于 `#{variable}` / `${variable}` 可查看 Java 类型与 Javadoc。
+### 1.1 跳转到定义
+
+- **数据库表**：在 XML 中点击表名 → 跳转到虚拟架构视图。
+- **ResultMap 属性**：在 `<resultMap>` 的 `property` 上 **Ctrl+Click (Cmd+Click)** → 跳转到 Java 字段。
+- **Java 类**：`resultType` / `parameterType` 指定类 → 跳转到对应 Java 类。
+
+### 1.2 Mapper ↔ XML 跳转
+
+- **快捷键**：`Ctrl+Alt+D` (Windows/Linux) / `Cmd+Alt+D` (macOS)
+- **命令面板**：执行「跳转到 XML」或「跳转到 Mapper」
+- **CodeLens**：点击代码上方的「跳转到 XML」链接
+
+### 1.3 悬停提示
+
+悬停于 `#{variable}` / `${variable}` 可查看 Java 类型与 Javadoc。
 
 ---
 
-## 二、SQL 高亮与格式化
+## 二、智能补全
+
+### 2.1 参数属性补全
+
+在 XML 中输入 `#{` 或 `${}` 内部时，自动提示：
+
+- **方法参数**：Mapper 方法定义的参数名
+- **对象属性**：参数对象的字段属性（支持嵌套对象）
+- **自动补全**：选择后自动补全右括号 `}`
+
+**示例**：
+```xml
+<!-- 输入 #{ 后自动提示 userName, userId 等属性 -->
+<select id="findUser">
+    SELECT * FROM user WHERE name = #{userName}
+</select>
+```
+
+### 2.2 动态 SQL 标签补全
+
+输入 `<` 后自动提示 MyBatis 动态 SQL 标签：
+
+| 输入 | 补全结果 |
+|------|----------|
+| `<if` | `<if test=""></if>` |
+| `<where` | `<where></where>` |
+| `<set` | `<set></set>` |
+| `<foreach` | `<foreach collection="" item="" index="" open="" close="" separator=""></foreach>` |
+| `<choose` | `<choose><when test=""></when><otherwise></otherwise></choose>` |
+| `<when` | `<when test=""></when>` |
+| `<otherwise` | `<otherwise></otherwise>` |
+| `<trim` | `<trim prefix="" suffix="" prefixOverrides="" suffixOverrides=""></trim>` |
+| `<bind` | `<bind name="" value="" />` |
+| `<sql` | `<sql id=""></sql>` |
+| `<include` | `<include refid="" />` |
+
+---
+
+## 三、属性重命名同步
+
+当你在 Java 实体类中重命名属性并保存时，自动检测并同步更新所有相关引用：
+
+### 3.1 支持的更新范围
+
+| 文件类型 | 更新内容 |
+|----------|----------|
+| **XML 文件** | `property` 属性、`#{}` 参数、`${}` 参数、`test` 条件表达式 |
+| **Java 文件** | `getXxx()` / `setXxx()` / `isXxx()` 方法名 |
+
+### 3.2 使用方式
+
+1. 打开 Java 实体类文件
+2. 修改属性名（如 `userName` → `name`）
+3. 保存文件（Ctrl+S / Cmd+S）
+4. 弹出确认对话框，显示所有受影响的文件
+5. 点击文件名可预览具体修改内容（diff 视图）
+6. 确认后自动更新所有文件
+
+### 3.3 确认界面示例
+
+```
+属性重命名: userName → name
+
+✓ 确认更新所有文件
+  XML: 2 个文件 5 处 | Java: 3 个文件 8 处
+✗ 取消
+
+─────────────────────────
+📄 XML 文件 (2 个)
+    📄 CustomerMapper.xml - 3 处
+    📄 OrderMapper.xml - 2 处
+
+─────────────────────────
+☕ Java 文件 (3 个)
+    ☕ CustomerService.java - 4 处
+    ☕ CustomerMapper.java - 2 处
+    ☕ OrderService.java - 2 处
+```
+
+---
+
+## 四、SQL 高亮与格式化
 
 - **方言**：支持 MySQL、PostgreSQL、Oracle、SQL Server、SQLite、DB2、H2、MariaDB。
 - **高亮**：关键字、系统函数、MyBatis 参数；方言特有关键字（如 PostgreSQL 的 `RETURNING`、`ILIKE`）。
@@ -49,23 +141,23 @@
 
 ---
 
-## 三、数据库管理与查询执行
+## 五、数据库管理与查询执行
 
-### 3.1 数据库浏览器（侧栏 MyBatis）
+### 5.1 数据库浏览器（侧栏 MyBatis）
 
 - **连接**：点击「添加连接」配置主机、端口、用户、密码、数据库类型与库名；支持多数据源。
 - **操作**：连接 / 断开、编辑、移除、刷新。
 - **表与结构**：展开连接查看表；右键表可「打开表结构」或「生成代码」。
 
-### 3.2 执行 SQL
+### 5.2 执行 SQL
 
 1. **选择数据库**：在 SQL 编辑器标题栏点击「选择数据库」，或从侧栏连接后，再执行 SQL。
 2. **新建查询**：命令面板执行「新建查询窗口」或从数据库浏览器入口，打开空白 SQL 文件。
 3. **执行方式**：
-   - **执行选中 SQL**：选中一段 SQL，或未选中时按“当前语句”执行。
+   - **执行选中 SQL**：选中一段 SQL，或未选中时按"当前语句"执行。
    - **执行全部 SQL**：执行当前文件中以分号分隔的所有语句。
 
-### 3.3 快捷键（仅 SQL 编辑器内生效）
+### 5.3 快捷键（仅 SQL 编辑器内生效）
 
 | 功能             | Windows / Linux   | macOS        |
 |------------------|------------------|--------------|
@@ -74,7 +166,7 @@
 
 可在 **键盘快捷方式**（Ctrl+K Ctrl+S）中搜索「执行选中 SQL」「执行全部 SQL」修改绑定。
 
-### 3.4 查询结果
+### 5.4 查询结果
 
 - **单条执行**：一个结果窗口；可显示影响行数、执行时长、返回行数。
 - **执行全部 SQL**：每条语句对应一个结果标签页（如「查询结果 (1/3)」），便于分别查看。
@@ -82,13 +174,13 @@
 - **日期时间**：按设置格式显示；列表与弹窗格式一致。
   - 设置项：`queryResult.datetimeFormat`、`queryResult.dateFormat`、`queryResult.timeFormat`（占位符：`%Y` `%m` `%d` `%H` `%i` `%s`）。
 
-### 3.5 展示全部结构
+### 5.5 展示全部结构
 
 在数据库浏览器视图标题或相关入口执行「展示全部结构 (表与列)」，在结果面板中查看当前库下所有表与列信息。
 
 ---
 
-## 四、高级验证
+## 六、高级验证
 
 - **SQL 验证**：实时检查 SQL 中的表名、列名是否存在。
 - **结果映射**：检查 `resultMap` / `resultType` 与 Java 类属性是否一致（含下划线转驼峰）。
@@ -97,14 +189,14 @@
 
 ---
 
-## 五、代码生成
+## 七、代码生成
 
 - 在**数据库浏览器**中右键表 →「生成代码 (Entity/Mapper/XML)」。
 - 按提示输入包名，自动生成 Entity、Mapper 接口与 XML，含基础 CRUD 与类型映射，可选 Lombok。
 
 ---
 
-## 六、方法名生成 SQL
+## 八、方法名生成 SQL
 
 - 在 Mapper 接口中写方法名（如 `selectUserByNameAndAge`），出现灯泡时选择 Quick Fix，自动在对应 XML 中生成 SQL。
 - 支持前缀：`select`、`update`、`delete`、`count`、`insert`；条件连接：`And`、`Or`；后缀如 `Like`、`In` 等。
@@ -113,7 +205,7 @@
 
 ## 配置摘要
 
-在 VS Code 设置中搜索 “MyBatis” 可看到全部配置。
+在 VS Code 设置中搜索 "MyBatis" 可看到全部配置。
 
 | 分类     | 配置示例 | 说明 |
 |----------|----------|------|
