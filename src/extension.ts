@@ -19,6 +19,7 @@ import { SqlHighlightingProvider, SQL_SEMANTIC_TOKEN_LEGEND } from './providers/
 import { MyBatisHoverProvider } from './providers/MyBatisHoverProvider';
 import { MyBatisCompletionProvider } from './providers/MyBatisCompletionProvider';
 import { MyBatisTagCompletionProvider } from './providers/MyBatisTagCompletionProvider';
+import { PropertyRenameService } from './services/PropertyRenameService';
 import { QueryResultsPanel } from './panels/QueryResultsPanel';
 import { QUERY_DEFAULT_MAX_ROWS } from './constants';
 import { QueryResult } from './types';
@@ -113,6 +114,22 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 装饰器 (代码高亮) - REMOVED
     // context.subscriptions.push(decorationProvider);
+
+    // Property Rename Service (detect property rename on save)
+    const propertyRenameService = new PropertyRenameService(indexer);
+    
+    // Track all open Java documents on startup
+    vscode.workspace.textDocuments.forEach(doc => propertyRenameService.onDocumentOpen(doc));
+    
+    // Track documents when they open
+    context.subscriptions.push(
+        vscode.workspace.onDidOpenTextDocument(doc => propertyRenameService.onDocumentOpen(doc))
+    );
+    
+    // Detect property changes on save
+    context.subscriptions.push(
+        vscode.workspace.onDidSaveTextDocument(doc => propertyRenameService.onDocumentSave(doc))
+    );
 
     // SQL 验证
     context.subscriptions.push(sqlValidationProvider);
