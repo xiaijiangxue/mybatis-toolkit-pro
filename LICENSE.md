@@ -1,6 +1,8 @@
 MIT License
 
-Copyright (c) 2025 郗野明
+Original Work Copyright (c) [郗野明]
+
+Modifications Copyright (c) 无名
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
